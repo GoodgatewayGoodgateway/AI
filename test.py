@@ -1,18 +1,21 @@
 import tensorflow_hub as hub
-import tensorflow as tf
-from transformers import T5Tokenizer, TFT5ForConditionalGeneration
+import torch
+from transformers import GPT2LMHeadModel, PreTrainedTokenizerFast
+import numpy as np
 
-# ✅ 1. 모델 로딩 상태 표시
+# ✅ 1. USE 로딩 (분석용 참고)
 print("🔄 Universal Sentence Encoder 다운로드 및 로딩 중...")
 use_model = hub.load("https://tfhub.dev/google/universal-sentence-encoder/4")
 print("✅ Universal Sentence Encoder 로딩 완료!\n")
 
-print("🔄 T5 모델 다운로드 및 로딩 중...")
-t5_tokenizer = T5Tokenizer.from_pretrained("t5-small")
-t5_model = TFT5ForConditionalGeneration.from_pretrained("t5-small")
-print("✅ T5 모델 로딩 완료!\n")
+# ✅ 2. KoGPT2 로딩
+print("🔄 KoGPT2 모델 다운로드 및 로딩 중...")
+tokenizer = PreTrainedTokenizerFast.from_pretrained("skt/kogpt2-base-v2")
+model = GPT2LMHeadModel.from_pretrained("skt/kogpt2-base-v2")
+model.eval()
+print("✅ KoGPT2 모델 로딩 완료!\n")
 
-# ✅ 2. 입력 텍스트
+# ✅ 3. 입력 텍스트
 print("📥 사용자 프로필 읽는 중...")
 user_profile_text = """
 이태영님은 26세의 서울시 서대문구에 거주하는 영업 사원으로, 에너지가 넘치고 사람을 만나는 것을 좋아하는 외향적인 성격의 소유자입니다. MBTI는 ESFP로, 활동적이고 사교적인 스타일이며, 사교 모임, 피트니스, 카페 탐방, 여행 등 사람들과 함께하는 활동에 관심이 많습니다.
@@ -27,22 +30,34 @@ user_profile_text = """
 """
 print("✅ 사용자 프로필 불러오기 완료!\n")
 
-# ✅ 3. USE 임베딩 처리 (실제로는 생성에 사용되진 않지만, 참고용)
+# ✅ 4. USE 임베딩 (선택적 참고용)
 print("📊 프로필 임베딩 중...")
 embedding = use_model([user_profile_text])[0].numpy()
 print("✅ 임베딩 완료!\n")
 
-# ✅ 4. 생각 생성 함수
-def generate_thought(text):
-    print("🧠 생각 생성 중 (T5 모델 사용)...")
-    prompt = f"이 사용자의 성향을 분석하여, 성향에 맞는 조언 또는 생각을 생성하세요: {text}"
-    inputs = t5_tokenizer(prompt, return_tensors="tf", truncation=True, padding=True, max_length=512)
-    outputs = t5_model.generate(inputs.input_ids, max_length=200, num_beams=5, no_repeat_ngram_size=2)
-    result = t5_tokenizer.decode(outputs[0], skip_special_tokens=True)
-    print("✅ 생각 생성 완료!\n")
-    return result
+# ✅ 5. 생각 생성 함수
+def generate_thought_with_kogpt2(text):
+    print("🧠 KoGPT2로 생각 생성 중...\n")
+    prompt = (
+        f"{text}\n\n이 사용자에 대해 분석한 결과,\n그의 성격과 생활 습관을 고려한 조언은 다음과 같습니다:\n"
+    )
+    input_ids = tokenizer.encode(prompt, return_tensors="pt")
+    output = model.generate(
+        input_ids,
+        max_length=300,
+        do_sample=True,
+        top_p=0.92,
+        top_k=50,
+        temperature=0.8,
+        no_repeat_ngram_size=2,
+        pad_token_id=tokenizer.pad_token_id,
+        eos_token_id=tokenizer.eos_token_id,
+    )
+    result = tokenizer.decode(output[0], skip_special_tokens=True)
+    print("✅ 생성 완료!\n")
+    return result.replace(prompt, "").strip()
 
-# ✅ 5. 결과 출력
-thought = generate_thought(user_profile_text)
-print("🤖 생성된 맞춤형 생각:")
+# ✅ 6. 결과 출력
+thought = generate_thought_with_kogpt2(user_profile_text)
+print("🤖 생성된 맞춤형 생각:\n")
 print(thought)
