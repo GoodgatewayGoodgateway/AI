@@ -1,58 +1,68 @@
 import json
-from transformers import AutoTokenizer, AutoModelForCausalLM
-from transformers import pipeline
 import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
-model_path = "KoAlpaca-Polyglot-5.8B"
+def convert_to_prompt(user):
+    lines = []
+    lines.append(f"{user['name']}님({user['age']}세)은 {user['location']}에 거주하는 {user['job']}으로, {user['introduction']}")
+    lines.append(f"MBTI는 {user['mbti']}이며, {', '.join(user['interests'])}을(를) 즐깁니다.")
+    lines.append(f"{user['smoking']}이고 {user['drinking']}합니다.")
+    lines.append(user['idealRoommate'])
 
-tokenizer = AutoTokenizer.from_pretrained(model_path)
-
-model = AutoModelForCausalLM.from_pretrained(
-    model_path,
-    torch_dtype=torch.float16,
-    low_cpu_mem_usage=True,
-    device_map="auto",
-)
-
-generator = pipeline("text-generation", model=model, tokenizer=tokenizer)
-
-with open("user_data.json", "r", encoding="utf-8") as f:
-    users = json.load(f)
-
-def make_prompt(user):
-    prompt = f"""
-당신은 아래 사용자 정보를 바탕으로, 줄글이 아닌 **숫자가 매겨진 5개의 문장**으로 구성된 설명문을 작성하는 AI입니다.  
-사용자에 대해 자연스럽게 설명하되, **자기소개 형식이나 명령문, 메타발언 없이** 인물의 특징과 생활습관을 드러내 주세요.
-
-[사용자 정보]
-이름: {user['name']}
-나이: {user['age']}
-직업: {user['job']}
-거주지: {user['location']}
-MBTI: {user['mbti']}
-소개: {user['introduction']}
-관심사: {", ".join(user['interests'])}
-흡연 여부: {user['smoking']}
-음주 여부: {user['drinking']}
-이상적인 룸메이트: {user['idealRoommate']}
-
-[생활 습관]
-"""
     for section in user["lifestyle"]:
-        prompt += f"- {section['title']}\n"
-        for item in section["items"]:
-            prompt += f"  • {item['label']}: {item['value']}\n"
+        items = [f"{item['label']}은 {item['value']}" for item in section["items"]]
+        lines.append(" / ".join(items))
 
-    prompt += f"""
+    return "\n".join(lines)
 
-📋 {user['name']} 님에 대한 요약:  
-사용자 정보 출력 (5문장)
-"""
-    return prompt.strip()
+def load_model(model_path):
+    print("모델과 토크나이저 로드 중...")
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path,
+        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+        device_map="auto"
+    )
+    return tokenizer, model
 
-for user in users:
-    prompt = make_prompt(user)
-    result = generator(prompt, max_new_tokens=250, do_sample=True, temperature=0.7)[0]["generated_text"]
-    
-    summary = result.split("줄글 요약:")[-1].strip()
-    print(f"\n📝 {user['name']} 님에 대한 요약:\n{summary}\n")
+def generate_summary(prompt, tokenizer, model, max_new_tokens=256):
+    system_prompt = "당신은 친절하고 요약을 잘하는 AI입니다. 아래의 정보를 자연스럽게 소개문장으로 정리하세요.\n"
+    full_prompt = f"{system_prompt}### 입력:\n{prompt}\n### 출력:\n"
+
+    inputs = tokenizer(full_prompt, return_tensors="pt", padding=True, truncation=True).to(model.device)
+
+    # token_type_ids 제거
+    if "token_type_ids" in inputs:
+        del inputs["token_type_ids"]
+
+    with torch.no_grad():
+        outputs = model.generate(
+            **inputs,
+            max_new_tokens=max_new_tokens,
+            do_sample=True,
+            temperature=0.7,
+            top_p=0.9,
+            eos_token_id=tokenizer.eos_token_id
+        )
+    generated = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    return generated.split("### 출력:")[-1].strip()
+
+def load_json(filepath):
+    with open(filepath, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return data
+
+def main():
+    model_path = "./KoAlpaca-Polyglot-5.8B"
+    user_list = load_json("user.json")
+
+    tokenizer, model = load_model(model_path)
+
+    for user in user_list:
+        prompt = convert_to_prompt(user)
+        print("\n🧾 [입력 프롬프트]:\n", prompt)
+        print("\n📝 [생성된 소개 문장]:\n", generate_summary(prompt, tokenizer, model))
+        print("=" * 100)
+
+if __name__ == "__main__":
+    main()
