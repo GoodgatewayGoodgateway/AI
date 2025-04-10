@@ -89,7 +89,7 @@ def load_json(filepath):
     return data
 
 def main():
-    model_path = "./KoAlpaca-Polyglot-5.8B"
+    model_path = "E:\KoAlpaca-Model\KoAlpaca-Polyglot-5.8B"
     user_list = load_json("user.json")
 
     tokenizer, model, device = load_model(model_path)
