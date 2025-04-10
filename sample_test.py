@@ -1,3 +1,8 @@
+# 딥러닝 기반 자연어 생성 모델을 이용한 인공지능 응용 개발 작업
+# 사용된 모델 : KoAlpaca-Polyglot-5.8B
+# 모델 다운로드 링크 : https://huggingface.co/KoAlpaca/KoAlpaca-Polyglot-5.8B
+# 모델 사용법 : https://huggingface.co/KoAlpaca/KoAlpaca-Polyglot-5.8B/blob/main/README.md
+
 import json
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
