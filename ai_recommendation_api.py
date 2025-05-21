@@ -73,8 +73,8 @@ def generate_reason_with_ollama(user, house):
     - 공통 관심사 수: {house["interest_count"]}
 
     위 정보를 바탕으로 사용자에게 해당 매물이 잘 맞는 이유를
-    자연스럽고 정중한 말투로 1문단 이내로 간결하게 한국어로 설명해줘.
-    (100자 이내로 부탁해)
+    자연스럽고 정중한 말투로 간결하게 한국어로 설명해줘.
+    (150자 이내로 부탁해)
     """
 
     try:
@@ -89,12 +89,21 @@ def generate_reason_with_ollama(user, house):
         return f"Ollama 설명 생성 실패: {e}"
 
 
-# Ollama 응답 정리 함수 (불필요한 태그 제거 + 정제 + 길이 제한)
 def clean_ollama_response(text: str) -> str:
+    # <think> ... </think> 제거
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
     text = re.sub(r"<[^>]+>", "", text)
     text = text.replace("\n", " ").strip()
-    return text[:100]  # 100자 이내로 자르기
+
+    # 문장 끝나는 단위로 분리
+    sentences = re.split(r'(?<=[.다요])\s+', text)  # 예: "좋아요. 깔끔해요" → ["좋아요.", "깔끔해요"]
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if 10 <= len(sentence) <= 100:  # 적당한 길이의 문장
+            return sentence
+
+    # 대체 문장
+    return "사용자의 성향에 잘 맞는 매물입니다."
 
 
 # 추천 API
