@@ -33,7 +33,7 @@ def get_category_count(lat: float, lng: float, category_code: str, radius: int =
 
     return len(data.get("documents", []))
 
-def get_category_items(lat: float, lng: float, category_code: str, radius: int = 500, limit: int = 5) -> list[FacilityItem]:
+def get_category_items(lat: float, lng: float, category_code: str, radius: int = 500, limit: int = None) -> list[FacilityItem]:
     headers = {
         "Authorization": f"KakaoAK {KAKAO_API_KEY}"
     }
@@ -42,7 +42,7 @@ def get_category_items(lat: float, lng: float, category_code: str, radius: int =
         "x": lng,
         "y": lat,
         "radius": radius,
-        "size": 15  # 최대 응답 개수 (Kakao 제한은 15)
+        "size": 15  # Kakao 제한: 1페이지 최대 15개
     }
 
     with httpx.Client() as client:
@@ -50,19 +50,25 @@ def get_category_items(lat: float, lng: float, category_code: str, radius: int =
         response.raise_for_status()
         data = response.json()
 
-    items = []
-    for doc in data.get("documents", [])[:limit]:  # 상위 N개만 추출
-        items.append(FacilityItem(
+    docs = data.get("documents", [])
+    if limit:
+        docs = docs[:limit]  # 제한 있을 경우만 자름
+
+    items = [
+        FacilityItem(
             name=doc.get("place_name"),
             lat=float(doc.get("y")),
             lng=float(doc.get("x"))
-        ))
+        )
+        for doc in docs
+    ]
 
     return items
 
 def get_nearby_facilities(lat: float, lng: float) -> FacilitySummary:
     return FacilitySummary(
-        cafes=get_category_items(lat, lng, CATEGORIES["cafes"]),
-        convenience_stores=get_category_items(lat, lng, CATEGORIES["convenience_stores"]),
-        gyms=get_category_items(lat, lng, CATEGORIES["gyms"])
+        cafes=get_category_items(lat, lng, CATEGORIES["cafes"], limit=None),
+        convenience_stores=get_category_items(lat, lng, CATEGORIES["convenience_stores"], limit=None),
+        gyms=get_category_items(lat, lng, CATEGORIES["gyms"], limit=None)
     )
+
