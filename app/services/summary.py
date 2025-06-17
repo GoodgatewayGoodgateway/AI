@@ -22,7 +22,7 @@ def build_prompt(req: HousingRequest, fac: FacilitySummary, cmp: ComparisonResul
     gym_desc = interpret_facility_count("헬스장", len(fac.gyms))
 
     return f"""
-다음은 부동산 매물에 대한 정보입니다. 이 정보를 바탕으로 사용자에게 설명해줄 문장 힌줄을 생성해주세요
+다음은 부동산 매물에 대한 정보입니다. 이 정보를 바탕으로 사용자에게 설명해줄 문장 한줄을 생성해주세요
 출력은 아래 요약 예시의 말투와 문법을 따라서 말하여 주세요
 
 - 면적: {req.area}㎡
