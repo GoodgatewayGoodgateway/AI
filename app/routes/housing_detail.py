@@ -18,7 +18,7 @@ router = APIRouter()
     "/recommendation",
     summary="부동산 AI 추천 + AI 요약",
     description="주소, 면적, 가격을 입력하면 해당 매물의 주변 편의시설, 유사 매물 비교 결과, 요약 문장을 함께 반환합니다.",
-    response_description="추천 분석 결과 (좌표, 시설 목록, 유사 매물 정보, AI 요약 포함)"
+    response_description="추천 분석 결과 (좌표, 시설 목록, 유사 매물 정보, AI 요약 문장 포함)"
 )
 def get_full_housing_analysis(data: HousingRequest = Body(...)):
     logger.info(f"[요청 받은 매물] 주소: {data.address}, 면적: {data.area}, 가격: {data.price}")
