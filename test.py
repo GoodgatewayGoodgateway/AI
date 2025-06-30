@@ -1,13 +1,19 @@
-import os
-import httpx
-from dotenv import load_dotenv
+import requests
 
-load_dotenv()
-
-key = os.getenv("KAKAO_REST_API_KEY")
-headers = {"Authorization": f"KakaoAK {key}"}
-params = {"query": "서울특별시 강남구 테헤란로 123"}
-
-res = httpx.get("https://dapi.kakao.com/v2/local/search/address.json", headers=headers, params=params)
-print(res.status_code)
+lat = 35.8149
+lng = 128.5541
+url = "https://m.land.naver.com/cluster/ajax/articleList"
+params = {
+    "rletTpCd": "VL:DDDGG:HOJT:JWJT:OR",
+    "tradTpCd": "A1:B1:B2",
+    "z": 16,
+    "lat": lat,
+    "lon": lng,
+    "btm": lat - 0.005,
+    "lft": lng - 0.01,
+    "top": lat + 0.005,
+    "rgt": lng + 0.01,
+    "page": 1
+}
+res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, params=params)
 print(res.json())
