@@ -11,7 +11,7 @@ app = FastAPI()
 # ✅ CORS 허용 설정 추가
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 운영 시: ["http://34.122.44.97:8888"]
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
