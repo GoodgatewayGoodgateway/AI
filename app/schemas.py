@@ -16,9 +16,15 @@ class FacilityItem(BaseModel):
 
 # 편의시설 요약 (각 카테고리 별 리스트)
 class FacilitySummary(BaseModel):
-    cafes: List[FacilityItem]
-    gyms: List[FacilityItem]
-    convenience_stores: List[FacilityItem]
+    cafes: list[FacilityItem]
+    convenience_stores: list[FacilityItem]
+    gyms: list[FacilityItem]
+    subway_stations: list[FacilityItem]
+    schools: list[FacilityItem]
+    hospitals: list[FacilityItem]
+    banks: list[FacilityItem]
+    parks: list[FacilityItem]
+    # bus_stops: list[FacilityItem]
 
 # 유사 매물 정보
 class SimilarListing(BaseModel):
