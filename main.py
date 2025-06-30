@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware  # ✅ CORS 추가
+from fastapi.middleware.cors import CORSMiddleware
 from app.routes import housing_detail
 from dotenv import load_dotenv
 import os
@@ -8,7 +8,6 @@ load_dotenv()  # .env 파일 로드
 
 app = FastAPI()
 
-# ✅ CORS 허용 설정 추가
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

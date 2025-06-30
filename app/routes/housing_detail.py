@@ -1,5 +1,3 @@
-# app/routes/housing_detail.py
-
 import logging
 import re, json, math
 import requests
