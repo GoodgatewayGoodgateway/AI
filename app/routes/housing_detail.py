@@ -77,15 +77,19 @@ def get_ai_summary(data: HousingRequest = Body(...)):
         inferred_type = infer_type_from_address(data.address)
 
         # 주변시설/비교/요약 처리
-        facilities = get_nearby_facilities(lat, lng)
-        comparison = compare_with_similars(
+        fac_dict = get_nearby_facilities(lat, lng)
+        fac = FacilitySummary(**fac_dict)
+
+        cmp_result = compare_with_similars(
             area=area_m2,
             deposit=data.deposit,
             monthly=data.monthly,
             lat=lat,
             lng=lng
         )
-        summary = generate_summary(data, facilities, comparison)
+        cmp = ComparisonResult(**cmp_result) if isinstance(cmp_result, dict) else cmp_result
+
+        summary = generate_summary(data, fac, cmp)
 
         # 반환값 구조 정리 (listings 구조에 맞춤)
         result = {
@@ -108,6 +112,9 @@ def get_ai_summary(data: HousingRequest = Body(...)):
         logger.error(f"[요약 생성 실패] {e}")
         return {"error": str(e)}
 
+from typing import List
+cached_listings: List[dict] = []
+
 @router.get(
     "/listings/search",
     summary="지역 기반 매물 검색",
@@ -115,13 +122,13 @@ def get_ai_summary(data: HousingRequest = Body(...)):
     response_description="매물 리스트"
 )
 def search_listings(query: str = Query(..., description="지역명 또는 키워드")):
+    global cached_listings  # ← 반드시 global 선언 필요
     try:
-        # 주소 → 좌표 변환
         lat, lng = address_to_coords(query)
         loc = NLocation(lat, lng)
         listings = []
 
-        # 1. complex 매물 (APT, OPST 등)
+        # 1. complex 매물
         try:
             sector = get_sector(loc)
             complex_things = get_things_each_direction(sector)
@@ -131,20 +138,20 @@ def search_listings(query: str = Query(..., description="지역명 또는 키워
                 lat_c = t.loc.lat
                 lng_c = t.loc.lon
                 address_name = coords_to_address(lat_c, lng_c)
-                
+
                 TYPE_LABELS = {
-                "APT": "아파트",
-                "OPST": "오피스텔",
-                "VL": "빌라",
-                "DDDGG": "다가구",
-                "HOJT": "주택",
-                "JWJT": "연립주택",
-                "OR": "원룸",
-            }
+                    "APT": "아파트",
+                    "OPST": "오피스텔",
+                    "VL": "빌라",
+                    "DDDGG": "다가구",
+                    "HOJT": "주택",
+                    "JWJT": "연립주택",
+                    "OR": "원룸",
+                }
 
                 listings.append({
-                    "name": t.name,  # 단지명 → name
-                    "address": address_name,  # Kakao 주소
+                    "name": t.name,
+                    "address": address_name,
                     "area": round(t.area.representative * 3.3, 1),
                     "deposit": t.lease.mn,
                     "monthly": 0,
@@ -158,7 +165,7 @@ def search_listings(query: str = Query(..., description="지역명 또는 키워
         except Exception as e:
             logger.warning(f"[complex 크롤링 실패] {e}")
 
-        # 2. article 매물 (빌라, 원룸, 단독 등)
+        # 2. article 매물
         try:
             url = "https://m.land.naver.com/cluster/ajax/articleList"
             params = {
@@ -204,8 +211,21 @@ def search_listings(query: str = Query(..., description="지역명 또는 키워
         except Exception as e:
             logger.warning(f"[articleList 요청 실패] {e}")
 
-        return {"listings": [ { "id": i, **listing } for i, listing in enumerate(listings) ]}
+        # ✅ ID 추가 및 캐싱
+        cached_listings = [{ "id": i, **listing } for i, listing in enumerate(listings)]
+        return {"listings": cached_listings}
 
     except Exception as e:
         logger.error(f"[지역 검색 오류] {str(e)}")
         return {"error": str(e)}
+
+@router.get(
+    "/listings/{id}",
+    summary="ID로 개별 매물 조회",
+    description="리스트에서 얻은 ID로 개별 매물 상세를 조회합니다.",
+    response_description="단일 매물 정보"
+)
+def get_listing_by_id(id: int):
+    if 0 <= id < len(cached_listings):
+        return cached_listings[id]
+    return {"error": f"해당 ID({id})의 매물이 존재하지 않습니다."}
