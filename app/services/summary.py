@@ -34,8 +34,8 @@ def build_prompt(area: float, deposit: int, monthly: int, fac: FacilitySummary, 
     avg_pyeong = to_pyeong(cmp.average_area)
 
     return f"""
-당신은 부동산 요약 AI입니다.
-아래의 매물 데이터를 기반으로, **한 줄 요약 문장**을 생성해주세요. 출력은 따뜻하고 설득력 있는 말투로, 마치 상담사가 사용자에게 말하듯 작성해주세요.
+다음은 부동산 매물에 대한 정보입니다. 이 정보를 바탕으로 사용자에게 설명해줄 문장 한 줄을 생성해주세요
+출력은 아래 요약 예시의 말투와 문법을 따라서 작성해주세요
 
 [매물 정보]
 - 면적: 약 {current_pyeong}평 ({area}㎡)
@@ -46,9 +46,7 @@ def build_prompt(area: float, deposit: int, monthly: int, fac: FacilitySummary, 
 - 주변 편의시설: {cafe_desc}, {store_desc}, {gym_desc}
 
 [출력 예시]
-1. 이 매물은 비슷한 다른 매물보다 가격이 저렴하고, 주변에 카페와 편의점이 많아 생활 편의성이 뛰어납니다!
-2. 넓은 면적 대비 저렴한 가격에, 주변에 헬스장과 상점이 가까워 생활하기 좋습니다.
-3. 주변 환경도 좋고 평균보다 저렴한 조건이라 추천드릴 수 있어요!
+이 매물은 다른 매물과 유사 조건이지만, 평균보다 저렴하고 그리고 ~ 하고 ~ 해서 사용자님에게 더 좋을 것 같아요!
 
 [당신의 출력]
 """.strip()
