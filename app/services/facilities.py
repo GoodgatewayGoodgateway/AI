@@ -83,15 +83,26 @@ def get_category_items(lat: float, lng: float, category_code: str, radius: int =
     ]
     return items
 
-def get_nearby_facilities(lat: float, lng: float) -> FacilitySummary:
-    return FacilitySummary(
-        cafes=get_category_items(lat, lng, CATEGORIES["cafes"]),
-        convenience_stores=get_category_items(lat, lng, CATEGORIES["convenience_stores"]),
-        gyms=get_category_items(lat, lng, CATEGORIES["gyms"]),
-        subway_stations=get_category_items(lat, lng, CATEGORIES["subway_stations"]),
-        schools=get_category_items(lat, lng, CATEGORIES["schools"]),
-        hospitals=get_category_items(lat, lng, CATEGORIES["hospitals"]),
-        banks=get_category_items(lat, lng, CATEGORIES["banks"]),
-        parks=get_category_items(lat, lng, CATEGORIES["parks"])
-        # bus_stops=get_keyword_items(lat, lng, keyword="정류장")
-    )
+def add_id_to_items(items: list[FacilityItem]) -> list[dict]:
+    return [
+        {
+            "id": i,
+            "name": item.name,
+            "lat": item.lat,
+            "lng": item.lng
+        }
+        for i, item in enumerate(items)
+    ]
+
+def get_nearby_facilities(lat: float, lng: float) -> dict:
+    return {
+        "cafes": add_id_to_items(get_category_items(lat, lng, CATEGORIES["cafes"])),
+        "convenience_stores": add_id_to_items(get_category_items(lat, lng, CATEGORIES["convenience_stores"])),
+        "gyms": add_id_to_items(get_category_items(lat, lng, CATEGORIES["gyms"])),
+        "subway_stations": add_id_to_items(get_category_items(lat, lng, CATEGORIES["subway_stations"])),
+        "schools": add_id_to_items(get_category_items(lat, lng, CATEGORIES["schools"])),
+        "hospitals": add_id_to_items(get_category_items(lat, lng, CATEGORIES["hospitals"])),
+        "banks": add_id_to_items(get_category_items(lat, lng, CATEGORIES["banks"])),
+        "parks": add_id_to_items(get_category_items(lat, lng, CATEGORIES["parks"]))
+    }
+
