@@ -88,3 +88,11 @@ uvicorn main:app --reload
 - Kakao Maps API (주소 ↔ 좌표 변환, 장소 정보 검색)
 - Naver 부동산 비공식 API 크롤링
 - OpenCV, Shapely, numpy (지도 시각화, 좌표 연산 등)
+
+---
+
+## 참고 자료
+
+- https://github.com/ByungJin-Lee/NaverRealEstateHavester (네이버 아파트 부동산 가격 AI에서 크롤링 하는 부분을 가져옴)
+- https://www.youtube.com/watch?v=xht7-LwT9Ro (다양한 크롤링 방법을 시도하게 함)
+- https://cocoabba.tistory.com/56 (이 티스토리에서 참고 많이 함)
