@@ -9,7 +9,6 @@ load_dotenv()
 KAKAO_API_KEY = os.getenv("KAKAO_REST_API_KEY")
 GEOCODE_URL = "https://dapi.kakao.com/v2/local/search/address.json"
 
-# 캐시 딕셔너리
 _address_cache = {}
 _coords_cache = {}
 

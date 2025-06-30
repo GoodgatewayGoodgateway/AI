@@ -67,7 +67,6 @@ async def async_get_nearby_facilities(lat: float, lng: float) -> dict:
         results[name] = add_id_to_items(items)
     return results
 
-# 동기 fallback 함수 (기존과 동일하게 유지)
 def get_category_items(lat: float, lng: float, category_code: str, radius: int = 1500, limit: int = None) -> list[FacilityItem]:
     headers = {
         "Authorization": f"KakaoAK {KAKAO_API_KEY}"
