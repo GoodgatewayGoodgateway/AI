@@ -41,20 +41,17 @@
 
 ---
 
-## 실행 방법
+## 배포 환경
 
-1. `.env` 파일에 다음 항목들을 추가
-
-```
-KAKAO_REST_API_KEY=카카오API키
-GEMINI_API_KEY=구글GeminiAPI키
-```
-
-2. FastAPI 실행
-
-```bash
-uvicorn main:app --reload
-```
+- **플랫폼**: Google Cloud Platform (GCP) – Compute Engine (Ubuntu 22.04)
+- **서버 실행 방식**: `systemd` 서비스 등록으로 콘솔 종료 시에도 지속 실행
+- **API 실행 포트**: `8888`번 포트에서 FastAPI(Uvicorn) 구동
+- **보안 설정**:
+    - GCP 방화벽에서 `tcp:8888` 포트 허용함
+    - `.env`를 통해 외부 API 키 및 실행 정보 관리
+- **Swagger UI**:
+    
+    `http://roomitdocs.o-r.kr/` (FastAPI Swagger UI)
 
 ---
 
