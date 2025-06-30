@@ -9,13 +9,23 @@ from app.services.geolocation import address_to_coords, coords_to_address
 from app.services.facilities import get_nearby_facilities
 from app.services.comparison import compare_with_similars
 from app.services.summary import generate_summary
-from src.classes import NLocation
-from src.util import get_sector, get_things_each_direction, distance_between
+from src.classes import NAddon, NLocation
+from src.util import get_sector, get_things, get_things_each_direction, distance_between
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+address_cache = {}
+
+def cached_coords_to_address(lat, lng):
+    key = f"{lat:.5f},{lng:.5f}"
+    if key in address_cache:
+        return address_cache[key]
+    addr = coords_to_address(lat, lng)
+    address_cache[key] = addr
+    return addr
 
 def pyeong_to_m2(pyeong: float) -> float:
     return round(pyeong * 3.3, 1)
@@ -131,13 +141,13 @@ def search_listings(query: str = Query(..., description="지역명 또는 키워
         # 1. complex 매물
         try:
             sector = get_sector(loc)
-            complex_things = get_things_each_direction(sector)
+            complex_things = get_parallel_things(sector)
             for t in complex_things:
                 if t.lease.mn is None or t.area.representative is None:
                     continue
                 lat_c = t.loc.lat
                 lng_c = t.loc.lon
-                address_name = coords_to_address(lat_c, lng_c)
+                address_name = cached_coords_to_address(lat_c, lng_c)
 
                 TYPE_LABELS = {
                     "APT": "아파트",
@@ -229,3 +239,30 @@ def get_listing_by_id(id: int):
     if 0 <= id < len(cached_listings):
         return cached_listings[id]
     return {"error": f"해당 ID({id})의 매물이 존재하지 않습니다."}
+
+from concurrent.futures import ThreadPoolExecutor
+
+def get_parallel_things(sector):
+    directions = NAddon.DIR_EACH
+    results = []
+
+    def get_one_dir(dirr):
+        addon = NAddon(
+            dir=[dirr],
+            tradeType=[NAddon.TRADE_DEAL, NAddon.TRADE_LEASE],
+            estateType=[
+                NAddon.ESTATE_APT, NAddon.ESTATE_OPST,
+                NAddon.ESTATE_VILLA, NAddon.ESTATE_HOUSE
+            ]
+        )
+        return get_things(sector, addon)
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = [executor.submit(get_one_dir, d) for d in directions]
+        for f in futures:
+            try:
+                results.extend(f.result())
+            except Exception as e:
+                print(f"Direction fetch error: {e}")
+    
+    return results
