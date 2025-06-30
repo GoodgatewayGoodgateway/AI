@@ -34,7 +34,7 @@ def get_facilities(query: str = Query(..., description="주소 (예: 대구 달�
         lat, lng = address_to_coords(query)
         facilities = get_nearby_facilities(lat, lng)
         logger.info(f"[편의시설 조회] lat={lat}, lng={lng}")
-        return facilities.dict()
+        return facilities
     except Exception as e:
         logger.error(f"[편의시설 조회 실패] {e}")
         return {"error": str(e)}
@@ -204,7 +204,7 @@ def search_listings(query: str = Query(..., description="지역명 또는 키워
         except Exception as e:
             logger.warning(f"[articleList 요청 실패] {e}")
 
-        return {"listings": listings}
+        return {"listings": [ { "id": i, **listing } for i, listing in enumerate(listings) ]}
 
     except Exception as e:
         logger.error(f"[지역 검색 오류] {str(e)}")
