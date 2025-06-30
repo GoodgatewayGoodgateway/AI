@@ -1,3 +1,4 @@
+import logging
 import os
 import google.generativeai as genai
 from app.schemas import HousingRequest, FacilitySummary, ComparisonResult
@@ -33,24 +34,31 @@ def build_prompt(area: float, deposit: int, monthly: int, fac: FacilitySummary, 
     avg_pyeong = to_pyeong(cmp.average_area)
 
     return f"""
-다음은 부동산 매물에 대한 정보입니다. 이 정보를 바탕으로 사용자에게 설명해줄 문장 한 줄을 생성해주세요
-출력은 아래 요약 예시의 말투와 문법을 따라서 작성해주세요
+당신은 부동산 요약 AI입니다.
+아래의 매물 데이터를 기반으로, **한 줄 요약 문장**을 생성해주세요. 출력은 따뜻하고 설득력 있는 말투로, 마치 상담사가 사용자에게 말하듯 작성해주세요.
 
+[매물 정보]
 - 면적: 약 {current_pyeong}평 ({area}㎡)
-- 가격: {total_price}만원
+- 가격: {total_price}만원 (보증금 {deposit} / 월세 {monthly})
 - 유사 매물 평균 면적: 약 {avg_pyeong}평 ({cmp.average_area}㎡)
 - 유사 매물 평균 가격: {cmp.average_price}만원
 - 현재 매물은 {"더 저렴한 편입니다." if cmp.cheaper_than_average else "비슷하거나 비쌉니다."}
-- 주변 편의시설 분석: {cafe_desc}, {store_desc}, {gym_desc}
+- 주변 편의시설: {cafe_desc}, {store_desc}, {gym_desc}
 
-요약 예시:  
-이 매물은 다른 매물과 유사 조건이지만, 평균보다 저렴하고 그리고 ~ 하고 ~ 해서 사용자님에게 더 좋을 것 같아요!
+[출력 예시]
+1. 이 매물은 비슷한 다른 매물보다 가격이 저렴하고, 주변에 카페와 편의점이 많아 생활 편의성이 뛰어납니다!
+2. 넓은 면적 대비 저렴한 가격에, 주변에 헬스장과 상점이 가까워 생활하기 좋습니다.
+3. 주변 환경도 좋고 평균보다 저렴한 조건이라 추천드릴 수 있어요!
 
-당신의 출력:
+[당신의 출력]
 """.strip()
 
 def generate_summary(req: HousingRequest, fac: FacilitySummary, cmp: ComparisonResult) -> str:
-    area_m2 = pyeong_to_m2(req.netLeasableArea)
-    prompt = build_prompt(area_m2, req.deposit, req.monthly, fac, cmp)
-    response = model.generate_content(prompt)
-    return response.text.strip()
+    try:
+        area_m2 = pyeong_to_m2(req.netLeasableArea)
+        prompt = build_prompt(area_m2, req.deposit, req.monthly, fac, cmp)
+        response = model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        logging.warning(f"[Gemini 요약 실패] {e}")
+        return "요약을 생성할 수 없습니다. 나중에 다시 시도해주세요."

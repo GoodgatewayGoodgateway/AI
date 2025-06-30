@@ -38,17 +38,45 @@ def get_facilities(query: str = Query(..., description="주소 (예: 대구 달�
     except Exception as e:
         logger.error(f"[편의시설 조회 실패] {e}")
         return {"error": str(e)}
+    
+def infer_type_from_address(address: str) -> str:
+    lat, lng = address_to_coords(address)
+    url = "https://m.land.naver.com/cluster/ajax/articleList"
+    params = {
+        "rletTpCd": "VL:DDDGG:HOJT:JWJT:OR:APT:OPST",
+        "tradTpCd": "A1:B1:B2",
+        "z": 16,
+        "lat": lat,
+        "lon": lng,
+        "btm": lat - 0.002,
+        "lft": lng - 0.002,
+        "top": lat + 0.002,
+        "rgt": lng + 0.002,
+        "page": 1
+    }
+
+    res = requests.get(url, params=params, headers={"User-Agent": "Mozilla/5.0"})
+    data = res.json()
+    if data["body"]:
+        nearest = data["body"][0]
+        return nearest.get("rletTpNm", "기타")
+    return "기타"
 
 @router.post(
     "/summary",
     summary="AI 요약 문장 생성",
-    description="입력한 매물, 주변시설, 비교 정보를 바탕으로 AI가 요약 문장을 생성합니다.",
+    description="입력한 매물 정보로 AI가 요약 문장을 생성합니다.",
     response_description="요약 문장"
 )
 def get_ai_summary(data: HousingRequest = Body(...)):
     try:
         lat, lng = address_to_coords(data.address)
         area_m2 = pyeong_to_m2(data.netLeasableArea)
+
+        # 타입 추론 추가
+        inferred_type = infer_type_from_address(data.address)
+
+        # 주변시설/비교/요약 처리
         facilities = get_nearby_facilities(lat, lng)
         comparison = compare_with_similars(
             area=area_m2,
@@ -58,8 +86,24 @@ def get_ai_summary(data: HousingRequest = Body(...)):
             lng=lng
         )
         summary = generate_summary(data, facilities, comparison)
-        logger.info(f"[요약 문장] {summary}")
-        return {"summary": summary}
+
+        # 반환값 구조 정리 (listings 구조에 맞춤)
+        result = {
+            "name": "사용자 입력 매물",
+            "address": data.address,
+            "area": round(area_m2, 1),
+            "deposit": data.deposit,
+            "monthly": data.monthly,
+            "price": data.deposit + data.monthly * 10,
+            "lat": lat,
+            "lng": lng,
+            "type": inferred_type,
+            "distance_km": 0.0,
+            "source": "input",
+            "summary": summary
+        }
+
+        return result
     except Exception as e:
         logger.error(f"[요약 생성 실패] {e}")
         return {"error": str(e)}

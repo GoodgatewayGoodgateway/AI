@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+httpx
+requests
+python-dotenv
+haversine
+shapely
+opencv-python-headless
+numpy
+google-generativeai
+pydantic
