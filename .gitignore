@@ -1,9 +1,9 @@
-# venv/
+venv/
 # .env
-# **/depercated folder/
-# __pycache__/
-# **/__pycache__/
-# .vscode/
-# .idea/
-# .DS_Store
-# Thumbs.db
+**/depercated folder/
+__pycache__/
+**/__pycache__/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
