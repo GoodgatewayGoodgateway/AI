@@ -1,15 +1,22 @@
 import logging
 import os
 import httpx
-from dotenv import load_dotenv
 import requests
+from dotenv import load_dotenv
 
-load_dotenv()  # .env에서 API 키 로드
+load_dotenv()
 
 KAKAO_API_KEY = os.getenv("KAKAO_REST_API_KEY")
 GEOCODE_URL = "https://dapi.kakao.com/v2/local/search/address.json"
 
+# 캐시 딕셔너리
+_address_cache = {}
+_coords_cache = {}
+
 def address_to_coords(address: str) -> tuple[float, float]:
+    if address in _address_cache:
+        return _address_cache[address]
+
     headers = {
         "Authorization": f"KakaoAK {KAKAO_API_KEY}"
     }
@@ -27,26 +34,16 @@ def address_to_coords(address: str) -> tuple[float, float]:
     x = float(documents[0]["x"])  # 경도
     y = float(documents[0]["y"])  # 위도
 
+    _address_cache[address] = (y, x)
     return y, x
 
-def reverse_geocode(lat: float, lng: float) -> str:
-    try:
-        kakao_key = os.getenv("KAKAO_REST_API_KEY")
-        headers = {"Authorization": f"KakaoAK {kakao_key}"}
-        params = {"x": lng, "y": lat}
-        res = httpx.get("https://dapi.kakao.com/v2/local/geo/coord2address.json", headers=headers, params=params)
-        res.raise_for_status()
-        data = res.json()
-        return data["documents"][0]["address"]["address_name"]
-    except Exception as e:
-        logger = logging.getLogger(__name__)
-        logger.warning(f"[reverse_geocode 실패] {e}")
-        return "주소 미상"
-
 def coords_to_address(lat: float, lng: float) -> str:
+    key = f"{lat:.5f},{lng:.5f}"
+    if key in _coords_cache:
+        return _coords_cache[key]
+
     try:
-        kakao_key = os.getenv("KAKAO_REST_API_KEY")
-        headers = {"Authorization": f"KakaoAK {kakao_key}"}
+        headers = {"Authorization": f"KakaoAK {KAKAO_API_KEY}"}
         res = requests.get(
             f"https://dapi.kakao.com/v2/local/geo/coord2address.json?x={lng}&y={lat}",
             headers=headers,
@@ -56,7 +53,9 @@ def coords_to_address(lat: float, lng: float) -> str:
         documents = res.json().get("documents", [])
         if not documents:
             return "주소 미상"
-        return documents[0]["address"].get("address_name", "주소 미상")
+        address = documents[0]["address"].get("address_name", "주소 미상")
+        _coords_cache[key] = address
+        return address
     except Exception as e:
         logger = logging.getLogger(__name__)
         logger.warning(f"[주소 변환 실패] {e}")

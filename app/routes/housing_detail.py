@@ -11,6 +11,7 @@ from app.services.comparison import compare_with_similars
 from app.services.summary import generate_summary
 from src.classes import NAddon, NLocation
 from src.util import get_sector, get_things, get_things_each_direction, distance_between
+from app.services.facilities import async_get_nearby_facilities
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -87,7 +88,8 @@ def get_ai_summary(data: HousingRequest = Body(...)):
         inferred_type = infer_type_from_address(data.address)
 
         # 주변시설/비교/요약 처리
-        fac_dict = get_nearby_facilities(lat, lng)
+        import asyncio
+        fac_dict = asyncio.run(async_get_nearby_facilities(lat, lng))
         fac = FacilitySummary(**fac_dict)
 
         cmp_result = compare_with_similars(
