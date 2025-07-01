@@ -3,11 +3,11 @@ import re, json, math, asyncio, requests, time
 from fastapi import APIRouter, Body, Query
 from app.schemas import HousingRequest, FacilitySummary, ComparisonResult
 from app.services.geolocation import address_to_coords, coords_to_address
-from app.services.facilities import get_nearby_facilities, async_get_nearby_facilities
+from app.services.facilities import async_get_nearby_facilities
 from app.services.comparison import compare_with_similars
 from app.services.summary import generate_summary
 from src.classes import NAddon, NLocation
-from src.util import get_sector, get_things, distance_between
+from src.util import async_get_parallel_things, get_sector, get_things, distance_between
 from typing import List
 from concurrent.futures import ThreadPoolExecutor
 
@@ -21,19 +21,19 @@ address_cache = {}
 type_cache = {}
 listing_query_cache = {"query": None, "listings": []}
 
-def cached_coords_to_address(lat, lng):
-    key = f"{lat:.5f},{lng:.5f}"
+async def cached_coords_to_address(lat, lng):
+    key = f"{round(lat, 5)},{round(lng, 5)}"
     if key in address_cache:
         return address_cache[key]
-    addr = coords_to_address(lat, lng)
+    addr = await coords_to_address(lat, lng)
     address_cache[key] = addr
     return addr
 
-def infer_type_from_address(address: str) -> str:
+async def infer_type_from_address(address: str) -> str:
     if address in type_cache:
         return type_cache[address]
 
-    lat, lng = address_to_coords(address)
+    lat, lng = await address_to_coords(address)
     url = "https://m.land.naver.com/cluster/ajax/articleList"
     params = {
         "rletTpCd": "VL:DDDGG:HOJT:JWJT:OR:APT:OPST",
@@ -70,13 +70,13 @@ def to_pyeong(area_m2: float) -> float:
     description="주소 또는 좌표를 기반으로 주변 카페, 편의점, 헬스장을 조회합니다.",
     response_description="FacilitySummary 객체 반환"
 )
-def get_facilities(query: str = Query(...)):
+async def get_facilities(query: str = Query(...)):
     start = time.perf_counter()
     try:
-        lat, lng = address_to_coords(query)
-        facilities = get_nearby_facilities(lat, lng)
+        lat, lng = await address_to_coords(query)
+        fac_dict = await async_get_nearby_facilities(lat, lng)
         logger.info(f"[편의시설 조회 완료] {time.perf_counter() - start:.2f}초 소요")
-        return facilities
+        return fac_dict
     except Exception as e:
         logger.error(f"[편의시설 조회 실패] {e} ({time.perf_counter() - start:.2f}초 소요)")
         return {"error": str(e)}
@@ -90,10 +90,10 @@ def get_facilities(query: str = Query(...)):
 async def get_ai_summary(data: HousingRequest = Body(...)):
     start = time.perf_counter()
     try:
-        lat, lng = address_to_coords(data.address)
+        lat, lng = await address_to_coords(data.address)
         area_m2 = pyeong_to_m2(data.netLeasableArea)
 
-        inferred_type = infer_type_from_address(data.address)
+        inferred_type = await infer_type_from_address(data.address)
         fac_dict = await async_get_nearby_facilities(lat, lng)
         fac = FacilitySummary(**fac_dict)
 
@@ -133,7 +133,7 @@ async def get_ai_summary(data: HousingRequest = Body(...)):
     description="지역명(동, 역, 학교 등)을 입력하면 해당 위치 주변의 매물 리스트를 반환합니다.",
     response_description="매물 리스트"
 )
-def search_listings(query: str = Query(...)):
+async def search_listings(query: str = Query(...)):
     global cached_listings
     start = time.perf_counter()
     if listing_query_cache["query"] == query:
@@ -141,17 +141,18 @@ def search_listings(query: str = Query(...)):
         return {"listings": listing_query_cache["listings"]}
 
     try:
-        lat, lng = address_to_coords(query)
+        lat, lng = await address_to_coords(query)
         loc = NLocation(lat, lng)
         listings = []
 
+        # 복합 단지 매물 (APT, OPST 등)
         try:
             sector = get_sector(loc)
-            complex_things = get_parallel_things(sector)
+            complex_things = await async_get_parallel_things(sector)
             for t in complex_things:
                 if t.lease.mn is None or t.area.representative is None:
                     continue
-                address_name = cached_coords_to_address(t.loc.lat, t.loc.lon)
+                address_name = await cached_coords_to_address(t.loc.lat, t.loc.lon)
                 TYPE_LABELS = {
                     "APT": "아파트", "OPST": "오피스텔", "VL": "빌라",
                     "DDDGG": "다가구", "HOJT": "주택", "JWJT": "연립주택", "OR": "원룸",
@@ -172,49 +173,13 @@ def search_listings(query: str = Query(...)):
         except Exception as e:
             logger.warning(f"[complex 크롤링 실패] {e}")
 
+        # 일반 article 매물 (빌라/단독/원룸 등) 분리된 함수로 처리
         try:
-            url = "https://m.land.naver.com/cluster/ajax/articleList"
-            params = {
-                "rletTpCd": "VL:DDDGG:HOJT:JWJT:OR",
-                "tradTpCd": "A1:B1:B2",
-                "z": 16,
-                "lat": lat,
-                "lon": lng,
-                "btm": lat - 0.005,
-                "lft": lng - 0.01,
-                "top": lat + 0.005,
-                "rgt": lng + 0.01,
-                "page": 1
-            }
-            res = requests.get(url, params=params, headers={"User-Agent": "Mozilla/5.0"})
-            res.raise_for_status()
-            data = res.json()
-            for a in data["body"]:
-                try:
-                    deposit = int(a.get("prc", 0))
-                    monthly = int(a.get("rentPrc", 0))
-                    area_m2 = float(a.get("spc2", 0) or 0.0)
-                    lat_a = float(a["lat"])
-                    lng_a = float(a["lng"])
-                    address_name = cached_coords_to_address(lat_a, lng_a)
-
-                    listings.append({
-                        "name": a.get("atclNm", "매물"),
-                        "address": address_name,
-                        "area": round(area_m2, 1),
-                        "deposit": deposit,
-                        "monthly": monthly,
-                        "price": deposit + monthly * 10,
-                        "lat": lat_a,
-                        "lng": lng_a,
-                        "type": a.get("rletTpNm", "기타"),
-                        "distance_km": round(distance_between(loc, NLocation(lat_a, lng_a)) / 1000, 2),
-                        "source": "article"
-                    })
-                except Exception as e:
-                    logger.warning(f"[article 파싱 실패] {e}")
+            from src.util import get_article_listings
+            article_list = await get_article_listings(loc)
+            listings.extend(article_list)
         except Exception as e:
-            logger.warning(f"[articleList 요청 실패] {e}")
+            logger.warning(f"[articleList 조회 실패] {e}")
 
         cached_listings = [{"id": i, **l} for i, l in enumerate(listings)]
         listing_query_cache["query"] = query
@@ -236,28 +201,3 @@ def get_listing_by_id(id: int):
     if 0 <= id < len(cached_listings):
         return cached_listings[id]
     return {"error": f"해당 ID({id})의 매물이 존재하지 않습니다."}
-
-def get_parallel_things(sector):
-    directions = NAddon.DIR_EACH
-    results = []
-
-    def get_one_dir(dirr):
-        addon = NAddon(
-            dir=[dirr],
-            tradeType=[NAddon.TRADE_DEAL, NAddon.TRADE_LEASE],
-            estateType=[
-                NAddon.ESTATE_APT, NAddon.ESTATE_OPST,
-                NAddon.ESTATE_VILLA, NAddon.ESTATE_HOUSE
-            ]
-        )
-        return get_things(sector, addon)
-
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        futures = [executor.submit(get_one_dir, d) for d in directions]
-        for f in futures:
-            try:
-                results.extend(f.result())
-            except Exception as e:
-                print(f"Direction fetch error: {e}")
-
-    return results
