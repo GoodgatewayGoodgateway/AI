@@ -244,3 +244,57 @@ def get_listing_by_id(id: int):
     if 0 <= id < len(cached_listings):
         return cached_listings[id]
     return {"error": f"해당 ID({id})의 매물이 존재하지 않습니다."}
+
+@router.post(
+    "/comparison",
+    summary="유사 매물 비교 API",
+    description="주소 및 유형을 기반으로 유사 매물 평균 가격과 비교합니다.",
+    response_description="비교 분석 결과 및 유사 매물 리스트"
+)
+async def compare_only(data: HousingRequest = Body(...)):
+    try:
+        lat, lng = await address_to_coords(data.address)
+        area_m2 = pyeong_to_m2(data.netLeasableArea)
+
+        inferred_type_name = data.type or await infer_type_from_address(data.address)
+        type_label_to_code = {
+            "아파트": "APT", "오피스텔": "OPST", "원룸": "OR",
+            "빌라": "VL", "다가구": "DDDGG", "주택": "HOJT", "연립주택": "JWJT"
+        }
+        inferred_type_code = type_label_to_code.get(inferred_type_name, "APT")
+
+        cmp_result = await compare_with_similars(
+            area=area_m2,
+            deposit=data.deposit,
+            monthly=data.monthly,
+            lat=lat,
+            lng=lng,
+            target_type=inferred_type_code
+        )
+        cmp = ComparisonResult(**cmp_result) if isinstance(cmp_result, dict) else cmp_result
+
+        return {
+            "analysis": {
+                "cheaper_than_average": cmp.cheaper_than_average,
+                "average_price": cmp.average_price,
+                "average_area_m2": cmp.average_area,
+                "average_area_pyeong": to_pyeong(cmp.average_area)
+            },
+            "similar_listings": [
+                {
+                    "address": s.address,
+                    "area": s.area,
+                    "deposit": s.deposit,
+                    "monthly": s.monthly,
+                    "price": s.price,
+                    "lat": s.lat,
+                    "lng": s.lng,
+                    "distance_km": s.distance_km
+                }
+                for s in cmp.similar_listings
+            ]
+        }
+
+    except Exception as e:
+        logger.error(f"[유사 매물 비교 실패] {e}")
+        return {"error": str(e)}
