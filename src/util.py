@@ -312,7 +312,6 @@ async def get_article_listings(loc: NLocation) -> list[dict]:
         articles = data.get("body", [])
         coords_list = [(float(a["lat"]), float(a["lng"])) for a in articles]
         
-        # 🔥 비동기 주소 변환 병렬 실행
         addresses = await asyncio.gather(*[
             coords_to_address(lat, lng) for lat, lng in coords_list
         ])

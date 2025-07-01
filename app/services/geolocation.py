@@ -14,7 +14,17 @@ REVERSE_GEOCODE_URL = "https://dapi.kakao.com/v2/local/geo/coord2address.json"
 _address_cache: dict[str, tuple[float, float]] = {}
 _coords_cache: dict[str, str] = {}
 
-_shared_client = httpx.AsyncClient(timeout=5.0)
+_shared_client: httpx.AsyncClient | None = None
+
+def set_shared_client(client: httpx.AsyncClient):
+    global _shared_client
+    _shared_client = client
+
+async def close_shared_client():
+    global _shared_client
+    if _shared_client:
+        await _shared_client.aclose()
+        _shared_client = None
 
 async def address_to_coords(address: str) -> tuple[float, float]:
     if address in _address_cache:
@@ -38,6 +48,10 @@ async def address_to_coords(address: str) -> tuple[float, float]:
         raise
 
 async def coords_to_address(lat: float, lng: float) -> str:
+    global _shared_client
+    if _shared_client is None:
+        raise RuntimeError("HTTP client is not initialized")
+
     key = f"{lat:.5f},{lng:.5f}"
     if key in _coords_cache:
         return _coords_cache[key]
