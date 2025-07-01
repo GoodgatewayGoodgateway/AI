@@ -1,3 +1,4 @@
+import functools
 from time import sleep
 from haversine import haversine
 from app.services.geolocation import coords_to_address
@@ -27,6 +28,18 @@ def get_neighborhood(sector : NSector, nType = ''):
     else:
         res = get(NRE_ROUTER.SCHOOL, param)
     return parse_neighbor(res, nType)
+
+async def get_neighborhood_async(sector: NSector, nType: str):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, functools.partial(get_neighborhood, sector, nType))
+
+async def async_get_all_neighbors(sector: NSector):
+    tasks = [get_neighborhood_async(sector, nType) for nType in NNeighbor.EACH]
+    results = await asyncio.gather(*tasks)
+    neighbors = []
+    for res in results:
+        neighbors.extend(res)
+    return neighbors
 
 def make_param_thing(sector : NSector, addon : NAddon = NAddon.get_default()):
     param = {

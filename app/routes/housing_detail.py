@@ -86,7 +86,7 @@ async def get_facilities(query: str = Query(...)):
     "/summary",
     summary="AI 요약 문장 생성",
     description="입력한 매물 정보로 AI가 요약 문장을 생성합니다.",
-    response_description="요약 문장"
+    response_description="요약 + 매물 분석 + 유사 매물"
 )
 async def get_ai_summary(data: HousingRequest = Body(...)):
     start = time.perf_counter()
@@ -94,36 +94,72 @@ async def get_ai_summary(data: HousingRequest = Body(...)):
         lat, lng = await address_to_coords(data.address)
         area_m2 = pyeong_to_m2(data.netLeasableArea)
 
-        inferred_type = await infer_type_from_address(data.address)
-        fac_dict = await async_get_nearby_facilities(lat, lng)
-        fac = FacilitySummary(**fac_dict)
+        # 🔁 매물 유형 처리
+        # 프론트에서 type을 넘기면 그대로 사용, 없으면 자동 추론
+        inferred_type_name = data.type or await infer_type_from_address(data.address)
 
-        cmp_result = compare_with_similars(
+        type_label_to_code = {
+            "아파트": "APT", "오피스텔": "OPST", "원룸": "OR",
+            "빌라": "VL", "다가구": "DDDGG", "주택": "HOJT", "연립주택": "JWJT"
+        }
+        inferred_type_code = type_label_to_code.get(inferred_type_name, "APT")
+
+        # 병렬 처리
+        fac_task = async_get_nearby_facilities(lat, lng)
+        cmp_task = compare_with_similars(
             area=area_m2,
             deposit=data.deposit,
             monthly=data.monthly,
             lat=lat,
-            lng=lng
+            lng=lng,
+            target_type=inferred_type_code
         )
-        cmp = ComparisonResult(**cmp_result) if isinstance(cmp_result, dict) else cmp_result
+        fac_dict, cmp_result = await asyncio.gather(fac_task, cmp_task)
 
+        fac = FacilitySummary(**fac_dict)
+        cmp = ComparisonResult(**cmp_result) if isinstance(cmp_result, dict) else cmp_result
         summary = generate_summary(data, fac, cmp)
 
         logger.info(f"[요약 생성 완료] {time.perf_counter() - start:.2f}초 소요")
+
         return {
-            "name": "사용자 입력 매물",
-            "address": data.address,
-            "area": round(area_m2, 1),
-            "deposit": data.deposit,
-            "monthly": data.monthly,
-            "price": data.deposit + data.monthly * 10,
-            "lat": lat,
-            "lng": lng,
-            "type": inferred_type,
-            "distance_km": 0.0,
-            "source": "input",
-            "summary": summary
+            "listing": {
+                "name": "사용자 입력 매물",
+                "type": inferred_type_name,
+                "address": data.address,
+                "deposit": data.deposit,
+                "monthly": data.monthly,
+                "price": data.deposit + data.monthly * 10,
+                "area_pyeong": round(data.netLeasableArea, 1),
+                "area_m2": round(area_m2, 1),
+                "lat": lat,
+                "lng": lng,
+                "source": "input"
+            },
+            "analysis": {
+                "cheaper_than_average": cmp.cheaper_than_average,
+                "average_price": cmp.average_price,
+                "average_area_m2": cmp.average_area,
+                "average_area_pyeong": to_pyeong(cmp.average_area)
+            },
+            "summary": summary,
+            "similar_listings": [
+                {
+                    "name": s.address,
+                    "address": s.address,
+                    "deposit": s.deposit,
+                    "monthly": s.monthly,
+                    "price": s.price,
+                    "area": s.area,
+                    "lat": s.lat,
+                    "lng": s.lng,
+                    "type": inferred_type_name,
+                    "distance_km": s.distance_km
+                }
+                for s in cmp.similar_listings
+            ]
         }
+
     except Exception as e:
         logger.error(f"[요약 생성 실패] {e} ({time.perf_counter() - start:.2f}초 소요)")
         return {"error": str(e)}
