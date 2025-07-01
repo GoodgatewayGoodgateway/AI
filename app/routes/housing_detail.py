@@ -10,6 +10,7 @@ from src.classes import NAddon, NLocation
 from src.util import async_get_parallel_things, get_sector, get_things, distance_between
 from typing import List
 from concurrent.futures import ThreadPoolExecutor
+from src.util import get_article_listings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -22,12 +23,12 @@ type_cache = {}
 listing_query_cache = {"query": None, "listings": []}
 
 async def cached_coords_to_address(lat, lng):
-    key = f"{round(lat, 5)},{round(lng, 5)}"
+    key = f"{lat:.5f},{lng:.5f}"
     if key in address_cache:
         return address_cache[key]
-    addr = await coords_to_address(lat, lng)
-    address_cache[key] = addr
-    return addr
+    address = await coords_to_address(lat, lng)
+    address_cache[key] = address
+    return address
 
 async def infer_type_from_address(address: str) -> str:
     if address in type_cache:
@@ -149,14 +150,21 @@ async def search_listings(query: str = Query(...)):
         try:
             sector = get_sector(loc)
             complex_things = await async_get_parallel_things(sector)
-            for t in complex_things:
+
+            # 필요한 좌표 추출 후 주소 병렬 변환
+            coords_list = [(t.loc.lat, t.loc.lon) for t in complex_things]
+            addresses = await asyncio.gather(
+                *(cached_coords_to_address(lat, lon) for lat, lon in coords_list)
+            )
+
+            TYPE_LABELS = {
+                "APT": "아파트", "OPST": "오피스텔", "VL": "빌라",
+                "DDDGG": "다가구", "HOJT": "주택", "JWJT": "연립주택", "OR": "원룸",
+            }
+
+            for t, address_name in zip(complex_things, addresses):
                 if t.lease.mn is None or t.area.representative is None:
                     continue
-                address_name = await cached_coords_to_address(t.loc.lat, t.loc.lon)
-                TYPE_LABELS = {
-                    "APT": "아파트", "OPST": "오피스텔", "VL": "빌라",
-                    "DDDGG": "다가구", "HOJT": "주택", "JWJT": "연립주택", "OR": "원룸",
-                }
                 listings.append({
                     "name": t.name,
                     "address": address_name,
@@ -173,9 +181,8 @@ async def search_listings(query: str = Query(...)):
         except Exception as e:
             logger.warning(f"[complex 크롤링 실패] {e}")
 
-        # 일반 article 매물 (빌라/단독/원룸 등) 분리된 함수로 처리
+        # 일반 article 매물
         try:
-            from src.util import get_article_listings
             article_list = await get_article_listings(loc)
             listings.extend(article_list)
         except Exception as e:
