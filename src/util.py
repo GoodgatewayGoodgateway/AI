@@ -1,7 +1,10 @@
 from time import sleep
 from haversine import haversine
+from app.services.geolocation import coords_to_address
 from src.classes import *
 import requests
+import httpx
+import asyncio
 
 BASE_API_URL = "https://new.land.naver.com/api/"
 #Check Log 
@@ -284,3 +287,104 @@ def get_all_on_sector(sector : NSector):
     things = get_things_each_direction(sector)
     neighbors = get_all_neighbors(sector)
     return (sector, things, neighbors)
+
+async def get_article_listings(loc: NLocation) -> list[dict]:
+    listings = []
+    url = "https://m.land.naver.com/cluster/ajax/articleList"
+    params = {
+        "rletTpCd": "VL:DDDGG:HOJT:JWJT:OR",
+        "tradTpCd": "A1:B1:B2",
+        "z": 16,
+        "lat": loc.lat,
+        "lon": loc.lon,
+        "btm": loc.lat - 0.005,
+        "lft": loc.lon - 0.01,
+        "top": loc.lat + 0.005,
+        "rgt": loc.lon + 0.01,
+        "page": 1
+    }
+
+    try:
+        res = requests.get(url, params=params, headers={"User-Agent": "Mozilla/5.0"})
+        res.raise_for_status()
+        data = res.json()
+
+        articles = data.get("body", [])
+        coords_list = [(float(a["lat"]), float(a["lng"])) for a in articles]
+        
+        # 🔥 비동기 주소 변환 병렬 실행
+        addresses = await asyncio.gather(*[
+            coords_to_address(lat, lng) for lat, lng in coords_list
+        ])
+
+        for a, address_name in zip(articles, addresses):
+            try:
+                deposit = int(a.get("prc", 0))
+                monthly = int(a.get("rentPrc", 0))
+                area_m2 = float(a.get("spc2", 0) or 0.0)
+                lat_a = float(a["lat"])
+                lng_a = float(a["lng"])
+
+                listings.append({
+                    "name": a.get("atclNm", "매물"),
+                    "address": address_name,
+                    "area": round(area_m2, 1),
+                    "deposit": deposit,
+                    "monthly": monthly,
+                    "price": deposit + monthly * 10,
+                    "lat": lat_a,
+                    "lng": lng_a,
+                    "type": a.get("rletTpNm", "기타"),
+                    "distance_km": round(distance_between(loc, NLocation(lat_a, lng_a)) / 1000, 2),
+                    "source": "article"
+                })
+            except Exception as e:
+                print(f"[article 파싱 실패] {e}")
+    except Exception as e:
+        print(f"[articleList 요청 실패] {e}")
+
+    return listings
+
+# 비동기 get_things
+async def get_things_async(sector: NSector, addon: NAddon) -> list[NThing]:
+    BASE_API_URL = "https://new.land.naver.com/api/"
+    url = BASE_API_URL + "complexes/single-markers/2.0"
+    params = make_param_thing(sector, addon)
+
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(url, params=params, headers={'User-Agent': '*'}, timeout=5.0)
+            resp.raise_for_status()
+            data = resp.json()
+            return parse_things(data, sector, addon.dir)
+        except Exception as e:
+            print(f"[비동기 매물 요청 실패] {addon.dir}: {e}")
+            return []
+
+# 병렬 방향 요청
+async def async_get_parallel_things(sector: NSector) -> list[NThing]:
+    directions = NAddon.DIR_EACH
+    tasks = []
+
+    for dirr in directions:
+        addon = NAddon(
+            dir=[dirr],
+            tradeType=[NAddon.TRADE_DEAL, NAddon.TRADE_LEASE],
+            estateType=[
+                NAddon.ESTATE_APT,
+                NAddon.ESTATE_OPST,
+                NAddon.ESTATE_VILLA,
+                NAddon.ESTATE_HOUSE
+            ]
+        )
+        tasks.append(get_things_async(sector, addon))
+
+    # asyncio.gather로 병렬 호출
+    all_results = await asyncio.gather(*tasks, return_exceptions=False)
+
+    # 리스트 합치기
+    combined = []
+    for sublist in all_results:
+        combined.extend(sublist)
+
+    return combined
