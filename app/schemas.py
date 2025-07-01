@@ -4,9 +4,10 @@ from typing import List
 # 요청 스키마
 class HousingRequest(BaseModel):
     address: str
-    netLeasableArea: float  # 평 단위 입력
-    deposit: int            # 만원 단위 보증금
-    monthly: int            # 만원 단위 월세
+    netLeasableArea: float
+    deposit: int
+    monthly: int
+    type: str | None = None
 
 # 편의시설 아이템 (이름 + 위치)
 class FacilityItem(BaseModel):
