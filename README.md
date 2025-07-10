@@ -88,6 +88,36 @@
 
 ---
 
+## Naver 부동산 비공식 API 크롤링을 위해 쓰인 모듈
+| 모듈명              | 용도                                      |
+| ---------------- | --------------------------------------- |
+| **requests**     | 네이버 부동산 API에 HTTP 요청 (`GET`, 헤더 설정 등)   |
+| **haversine**    | 두 좌표 간 거리 계산 (단위: m/km)                 |
+| **httpx**        | Kakao API 비동기 요청용 (편의시설, 좌표 변환 등)       |
+| **dotenv**       | `.env`에서 Kakao API Key 로드               |
+| **shapely**      | Sector 내 포함 여부 확인용 (좌표 → 다각형)           |
+| **numpy (np)**   | 좌표/도형 처리, 이미지 렌더링 보조                    |
+| **cv2 (OpenCV)** | Sector 지도 렌더링 시 사용 (단 실제 사용 안 했을 수도 있음) |
+| **src.classes**              | NLocation, NSector, NThing 등 부동산 관련 데이터 클래스                 |
+| **src.util**                 | get\_sector, get\_things, distance\_between 등 네이버 API 호출 함수 |
+| **app.services.geolocation** | Kakao 주소 ↔ 좌표 변환                                            |
+| **app.services.facilities**  | Kakao 주변시설 검색                                               |
+| **app.services.comparison**  | 매물 비교                                                       |
+| **app.services.summary**     | Gemini API 요약 호출                                            |
+
+## 커스텀 모듈에 쓰인 외부 모듈
+| 폴더           | 파일             | 역할               | 외부 모듈               |
+| ------------ | -------------- | ---------------- | ------------------- |
+| src          | classes.py     | 좌표/매물 데이터 클래스    | shapely, numpy, cv2 |
+| src          | util.py        | Naver API 크롤러    | requests, haversine |
+| app/services | geolocation.py | Kakao 주소 ↔ 좌표 변환 | httpx, dotenv       |
+| app/services | facilities.py  | Kakao 편의시설 검색    | httpx, dotenv       |
+| app/services | comparison.py  | 매물 비교            | src.util            |
+| app/services | summary.py     | Gemini API 요약    | httpx, dotenv       |
+
+
+---
+
 ## 참고 자료
 
 - https://github.com/ByungJin-Lee/NaverRealEstateHavester (네이버 아파트 부동산 가격 AI에서 크롤링 하는 부분을 가져옴)
