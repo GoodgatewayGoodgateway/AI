@@ -8,16 +8,18 @@ from src.util import (
 )
 
 async def compare_with_similars(area: float, deposit: int, monthly: int, lat: float, lng: float, target_type: str) -> ComparisonResult:
-    current_price = deposit + (monthly * 10)
+    current_price = deposit + (monthly * 10)    
     current_loc = NLocation(lat, lng)
 
-    # 1. 섹터 조회
-    try:
-        sector = get_sector(current_loc)
-    except Exception as e:
-        raise RuntimeError(f"섹터 정보를 불러오지 못했습니다: {e}")
+    # OR 타입은 섹터 조회 스킵
+    sector = None
+    if target_type != "OR":
+        try:
+            sector = get_sector(current_loc)
+        except Exception as e:
+            raise RuntimeError(f"섹터 정보를 불러오지 못했습니다: {e}")
 
-    # 2. 매물 크롤링
+    # 매물 크롤링
     if target_type == "OR":  # 원룸일 경우 article API 사용
         things = await get_article_listings(current_loc)
         # 필터링된 article dict 리스트 → SimilarListing으로 변환
