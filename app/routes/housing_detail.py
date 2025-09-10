@@ -12,6 +12,8 @@ from typing import List
 from concurrent.futures import ThreadPoolExecutor
 from src.util import get_article_listings
 
+from typing import List
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -21,6 +23,8 @@ router = APIRouter()
 address_cache = {}
 type_cache = {}
 listing_query_cache = {"query": None, "listings": []}
+listing_cache_ttl = 60  # 캐시 유효 시간 (초)
+listing_cache_time = None
 
 async def cached_coords_to_address(lat, lng):
     key = f"{lat:.5f},{lng:.5f}"
@@ -252,9 +256,16 @@ async def get_facilities(query: str = Query(...)):
     response_description="매물 리스트"
 )
 async def search_listings(query: str = Query(...)):
-    global cached_listings
+    global cached_listings, listing_cache_time
+
     start = time.perf_counter()
-    if listing_query_cache["query"] == query:
+
+    # 캐시 확인
+    if (
+        listing_query_cache["query"] == query
+        and listing_cache_time is not None
+        and (time.time() - listing_cache_time) < listing_cache_ttl
+    ):
         logger.info(f"[리스트 캐시 반환 완료] {time.perf_counter() - start:.2f}초 소요")
         return {"listings": listing_query_cache["listings"]}
 
@@ -263,57 +274,81 @@ async def search_listings(query: str = Query(...)):
         loc = NLocation(lat, lng)
         listings = []
 
-        # 복합 단지 매물 (APT, OPST 등)
+        # article 매물 조회
         try:
-            sector = get_sector(loc)
-            complex_things = await async_get_parallel_things(sector)
-
-            # 필요한 좌표 추출 후 주소 병렬 변환
-            coords_list = [(t.loc.lat, t.loc.lon) for t in complex_things]
-            addresses = await asyncio.gather(
-                *(cached_coords_to_address(lat, lon) for lat, lon in coords_list)
-            )
-
-            TYPE_LABELS = {
-                "APT": "아파트", "OPST": "오피스텔", "VL": "빌라",
-                "DDDGG": "다가구", "HOJT": "주택", "JWJT": "연립주택", "OR": "원룸",
-            }
-
-            for t, address_name in zip(complex_things, addresses):
-                if t.lease.mn is None or t.area.representative is None:
-                    continue
-                listings.append({
-                    "name": t.name,
-                    "address": address_name,
-                    "area": round(t.area.representative * 3.3, 1),
-                    "deposit": t.lease.mn,
-                    "monthly": 0,
-                    "price": t.lease.mn,
-                    "lat": t.loc.lat,
-                    "lng": t.loc.lon,
-                    "type": TYPE_LABELS.get(t.type, "기타"),
-                    "distance_km": round(distance_between(loc, t.loc) / 1000, 2),
-                    "source": "complex"
-                })
-        except Exception as e:
-            logger.warning(f"[complex 크롤링 실패] {e}")
-
-        # 일반 article 매물
-        try:
+            await asyncio.sleep(0.3)  # rate-limit 완화
             article_list = await get_article_listings(loc)
             listings.extend(article_list)
         except Exception as e:
             logger.warning(f"[articleList 조회 실패] {e}")
 
+        # 캐싱
         cached_listings = [{"id": i, **l} for i, l in enumerate(listings)]
         listing_query_cache["query"] = query
         listing_query_cache["listings"] = cached_listings
+        listing_cache_time = time.time()
+
         logger.info(f"[리스트 검색 완료] {time.perf_counter() - start:.2f}초 소요")
         return {"listings": cached_listings}
 
     except Exception as e:
         logger.error(f"[지역 검색 오류] {str(e)} ({time.perf_counter() - start:.2f}초 소요)")
         return {"error": str(e)}
+
+CITY_CENTERS = {
+    "서울": (37.5665, 126.9780),
+    "부산": (35.1796, 129.0756),
+    "대구": (35.8714, 128.6014),
+    "대전": (36.3504, 127.3845),
+    "광주": (35.1595, 126.8526),
+    "인천": (37.4563, 126.7052),
+    "제주": (33.4996, 126.5312),
+    "수원": (37.2635, 127.0286),
+    "울산": (35.5384, 129.3114),
+    "창원": (35.2285, 128.6865),
+    "청주": (36.6359, 127.4914),
+    "천안": (36.8149, 127.1192),
+    "전주": (35.8200, 127.1523),
+}
+
+@router.get(
+    "/listings/all",
+    summary="전국 주요 도시 매물 조회",
+    description="서울, 부산, 대구 등 주요 도시 중심 좌표 기준으로 매물을 가져옵니다.",
+    response_description="도시별 매물 리스트"
+)
+async def nationwide_listings():
+    global cached_listings
+    results = {}
+    all_listings = []
+    idx = 0
+
+    async def fetch(city: str, lat: float, lng: float):
+        try:
+            # ✅ 네이버 매물만 조회 (카카오 주소 변환 없음)
+            listings = await get_article_listings(NLocation(lat, lng))
+            await asyncio.sleep(0.5)  # 네이버 API rate limit 완화
+            return listings
+        except Exception as e:
+            logger.warning(f"[{city}] 조회 실패: {e}")
+            return []
+
+    tasks = [fetch(city, lat, lng) for city, (lat, lng) in CITY_CENTERS.items()]
+    listings_per_city = await asyncio.gather(*tasks)
+
+    for (city, _), listings in zip(CITY_CENTERS.items(), listings_per_city):
+        city_results = []
+        for l in listings:
+            wrapped = {"id": idx, **l}  # 개별 매물에 id 부여
+            city_results.append(wrapped)
+            all_listings.append(wrapped)
+            idx += 1
+        results[city] = city_results
+
+    # ✅ 전국 매물 캐시에 저장 (상세 조회용)
+    cached_listings = all_listings
+    return results
+
 
 @router.get(
     "/listings/{id}",
@@ -322,6 +357,9 @@ async def search_listings(query: str = Query(...)):
     response_description="단일 매물 정보"
 )
 def get_listing_by_id(id: int):
+    if not cached_listings:
+        return {"error": "검색된 매물이 없습니다. 먼저 /api/listings/search 또는 /api/listings/nationwide를 실행하세요."}
     if 0 <= id < len(cached_listings):
         return cached_listings[id]
     return {"error": f"해당 ID({id})의 매물이 존재하지 않습니다."}
+
