@@ -12,10 +12,21 @@ BASE_API_URL = "https://new.land.naver.com/api/"
 #Time
 IS_LOGGING = True
 
+_sector_cache: dict[str, NSector] = {}
+
 def get(url = "", params = {}):
-    rep = requests.get(BASE_API_URL + url, params=params, headers={'User-Agent': '*'})
-    if IS_LOGGING is True : print('Get', rep.request.url)
-    if rep.status_code != 200: raise Exception('Response Error')
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/117.0.0.0 Safari/537.36",
+        "Referer": "https://new.land.naver.com/"
+    }
+    rep = requests.get(BASE_API_URL + url, params=params, headers=headers)
+    if IS_LOGGING:
+        print(f"[GET] {rep.request.url} → {rep.status_code}")
+    if rep.status_code != 200:
+        # 상세 오류 출력
+        raise Exception(f"Response Error {rep.status_code}: {rep.text[:200]}")
     return rep.json()
 
 def get_neighborhood(sector : NSector, nType = ''):
@@ -78,8 +89,14 @@ def make_param_sector(loc : NLocation):
     return  {'centerLat':loc.lat, 'centerLon':loc.lon, 'zoom': loc.zoom}
 
 def get_sector(loc : NLocation):
+    key = f"{loc.lat:.5f},{loc.lon:.5f},z{loc.zoom}"
+    if key in _sector_cache:
+        return _sector_cache[key]
+
     res = get(NRE_ROUTER.CORTARS, make_param_sector(loc))
-    return parse_sector(res)
+    sector = parse_sector(res)
+    _sector_cache[key] = sector
+    return sector
 
 def split_list(list : list, k : int = 5):
     splited = []

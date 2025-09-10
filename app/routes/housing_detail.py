@@ -78,8 +78,13 @@ async def compare_only(data: HousingRequest = Body(...)):
 
         inferred_type_name = data.type or await infer_type_from_address(data.address)
         type_label_to_code = {
-            "아파트": "APT", "오피스텔": "OPST", "원룸": "OR",
-            "빌라": "VL", "다가구": "DDDGG", "주택": "HOJT", "연립주택": "JWJT"
+            "아파트": "APT", "APT": "APT",
+            "오피스텔": "OPST", "OPST": "OPST",
+            "원룸": "OR", "OR": "OR",
+            "빌라": "VL", "VL": "VL",
+            "다가구": "DDDGG", "DDDGG": "DDDGG",
+            "주택": "HOJT", "HOJT": "HOJT",
+            "연립주택": "JWJT", "JWJT": "JWJT"
         }
         inferred_type_code = type_label_to_code.get(inferred_type_name, "APT")
 
@@ -132,26 +137,47 @@ async def get_ai_summary(data: HousingRequest = Body(...)):
         area_m2 = pyeong_to_m2(data.netLeasableArea)
 
         # 🔁 매물 유형 처리
-        # 프론트에서 type을 넘기면 그대로 사용, 없으면 자동 추론
         inferred_type_name = data.type or await infer_type_from_address(data.address)
 
         type_label_to_code = {
-            "아파트": "APT", "오피스텔": "OPST", "원룸": "OR",
-            "빌라": "VL", "다가구": "DDDGG", "주택": "HOJT", "연립주택": "JWJT"
+            "아파트": "APT", "APT": "APT",
+            "오피스텔": "OPST", "OPST": "OPST",
+            "원룸": "OR", "OR": "OR",
+            "빌라": "VL", "VL": "VL",
+            "다가구": "DDDGG", "DDDGG": "DDDGG",
+            "주택": "HOJT", "HOJT": "HOJT",
+            "연립주택": "JWJT", "JWJT": "JWJT"
         }
         inferred_type_code = type_label_to_code.get(inferred_type_name, "APT")
 
-        # 병렬 처리
-        fac_task = async_get_nearby_facilities(lat, lng)
-        cmp_task = compare_with_similars(
-            area=area_m2,
-            deposit=data.deposit,
-            monthly=data.monthly,
-            lat=lat,
-            lng=lng,
-            target_type=inferred_type_code
-        )
-        fac_dict, cmp_result = await asyncio.gather(fac_task, cmp_task)
+        # 🔎 디버깅 로그
+        logger.info(f"[타입 확인] name={inferred_type_name}, code={inferred_type_code}")
+
+        # 주변 편의시설 비동기 태스크
+        fac_task = asyncio.create_task(async_get_nearby_facilities(lat, lng))
+
+        if inferred_type_code == "OR":
+            logger.info("[분기 확인] OR 타입 분기 진입 ✅")
+            cmp_result = await compare_with_similars(
+                area=area_m2,
+                deposit=data.deposit,
+                monthly=data.monthly,
+                lat=lat,
+                lng=lng,
+                target_type="OR"
+            )
+            fac_dict = await fac_task
+        else:
+            logger.info("[분기 확인] OR 아님 → sector API 실행 ❌")
+            cmp_task = compare_with_similars(
+                area=area_m2,
+                deposit=data.deposit,
+                monthly=data.monthly,
+                lat=lat,
+                lng=lng,
+                target_type=inferred_type_code
+            )
+            fac_dict, cmp_result = await asyncio.gather(fac_task, cmp_task)
 
         fac = FacilitySummary(**fac_dict)
         cmp = ComparisonResult(**cmp_result) if isinstance(cmp_result, dict) else cmp_result
@@ -200,6 +226,7 @@ async def get_ai_summary(data: HousingRequest = Body(...)):
     except Exception as e:
         logger.error(f"[요약 생성 실패] {e} ({time.perf_counter() - start:.2f}초 소요)")
         return {"error": str(e)}
+
 
 @router.get(
     "/facilities",
