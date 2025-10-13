@@ -30,13 +30,12 @@ async def safe_get_sector(location: NLocation, retries: int = 3):
             return data
 
         elif res.status_code == 429:
-            wait = 3 * (attempt + 1)
+            wait = attempt + 1
             print(f"[RATE LIMIT] 네이버 429 → {wait}초 대기 후 재시도 ({attempt+1}/{retries})")
             await asyncio.sleep(wait)
         else:
             res.raise_for_status()
 
-    # 3회 모두 실패 시 None 반환 (→ fallback trigger)
     return None
 
 
@@ -44,14 +43,12 @@ async def compare_with_similars(area: float, deposit: int, monthly: int, lat: fl
     current_price = deposit + (monthly * 10)
     current_loc = NLocation(lat, lng)
 
-    # ✅ OR 타입은 섹터 조회 생략
     sector = None
     if target_type != "OR":
         sector = await safe_get_sector(current_loc)
 
     valid_listings = []
 
-    # ✅ case 1: 원룸 (OR)
     if target_type == "OR":
         things = await get_article_listings(current_loc)
         valid_listings = [
@@ -68,7 +65,6 @@ async def compare_with_similars(area: float, deposit: int, monthly: int, lat: fl
             for t in things if t.get("area") and t.get("deposit") is not None
         ]
 
-    # ✅ case 2: 다른 유형 (빌라, 아파트 등)
     else:
         if sector is not None:
             try:
@@ -94,7 +90,6 @@ async def compare_with_similars(area: float, deposit: int, monthly: int, lat: fl
             except Exception as e:
                 print(f"[WARN] 복합 단지 불러오기 실패: {e}")
         else:
-            # ⚠️ fallback 실행 (섹터 API 완전 차단 시)
             print("[FALLBACK] 섹터 API 불가 → articleList로 대체 조회 실행")
             things = await get_article_listings(current_loc)
             valid_listings = [
@@ -114,7 +109,6 @@ async def compare_with_similars(area: float, deposit: int, monthly: int, lat: fl
     if not valid_listings:
         raise ValueError("해당 유형의 유사 매물을 찾을 수 없습니다.")
 
-    # ✅ 평균 계산
     total_price = sum(t.price for t in valid_listings)
     total_area = sum(t.area for t in valid_listings)
     count = len(valid_listings)
