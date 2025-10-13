@@ -7,11 +7,8 @@ import time
 
 load_dotenv()
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-
-# ✅ 모델명 수정 (정식 버전)
 model = genai.GenerativeModel("gemini-2.0-flash")
 
-# ✅ 캐시 저장소 (같은 요청 재사용)
 SUMMARY_CACHE = {}
 
 def pyeong_to_m2(pyeong: float) -> float:
@@ -59,7 +56,7 @@ def build_prompt(area: float, deposit: int, monthly: int, fac: FacilitySummary, 
 
 def generate_summary(req: HousingRequest, fac: FacilitySummary, cmp: ComparisonResult) -> str:
     try:
-        # ✅ 입력값 캐싱 키 생성
+        # 입력값 캐싱 키 생성
         cache_key = (req.address, req.deposit, req.monthly, req.netLeasableArea)
         if cache_key in SUMMARY_CACHE:
             return SUMMARY_CACHE[cache_key]
@@ -67,7 +64,7 @@ def generate_summary(req: HousingRequest, fac: FacilitySummary, cmp: ComparisonR
         area_m2 = pyeong_to_m2(req.netLeasableArea)
         prompt = build_prompt(area_m2, req.deposit, req.monthly, fac, cmp)
 
-        # ✅ 자동 재시도 (최대 2회)
+        # 자동 재시도 (최대 2회)
         for attempt in range(2):
             try:
                 start = time.time()
