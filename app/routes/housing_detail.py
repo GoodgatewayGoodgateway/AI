@@ -161,7 +161,7 @@ async def get_ai_summary(data: HousingRequest = Body(...)):
         fac_task = asyncio.create_task(async_get_nearby_facilities(lat, lng))
 
         if inferred_type_code == "OR":
-            logger.info("[분기 확인] OR 타입 분기 진입 ✅")
+            logger.info("[분기 확인] 원룸 타입 분기 진입 ")
             cmp_result = await compare_with_similars(
                 area=area_m2,
                 deposit=data.deposit,
@@ -172,7 +172,7 @@ async def get_ai_summary(data: HousingRequest = Body(...)):
             )
             fac_dict = await fac_task
         else:
-            logger.info("[분기 확인] OR 아님 → sector API 실행 ❌")
+            logger.info("[분기 확인] 원룸 아님 → sector API 실행 하지 않음")
             cmp_task = compare_with_similars(
                 area=area_m2,
                 deposit=data.deposit,
@@ -345,7 +345,7 @@ async def nationwide_listings():
             idx += 1
         results[city] = city_results
 
-    # ✅ 전국 매물 캐시에 저장 (상세 조회용)
+    # 전국 매물 캐시에 저장 (상세 조회용)
     cached_listings = all_listings
     return results
 
