@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel("models/gemini-1.5-flash")
+model = genai.GenerativeModel("models/gemini-2.5-flash")
 
 def pyeong_to_m2(pyeong: float) -> float:
     return round(pyeong * 3.3, 1)
