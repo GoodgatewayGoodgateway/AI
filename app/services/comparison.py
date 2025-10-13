@@ -30,7 +30,7 @@ async def safe_get_sector(location: NLocation, retries: int = 3):
             return data
 
         elif res.status_code == 429:
-            wait = attempt + 0.25
+            wait = 0.25
             print(f"[RATE LIMIT] 네이버 요청 거부: {wait}초 대기 후 재시도 ({attempt+1}/{retries})")
             await asyncio.sleep(wait)
         else:
