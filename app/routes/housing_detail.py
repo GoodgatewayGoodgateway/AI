@@ -19,7 +19,7 @@ router = APIRouter()
 cached_listings: list[dict[str, Any]] = []
 address_cache: Dict[str, str] = {}
 type_cache: Dict[str, str] = {}
-listing_query_cache = {"query": None, "listings": []}
+listing_query_cache = {"query": None, "listings": []} 
 listing_cache_ttl = 60  # 초 단위
 listing_cache_time: float | None = None
 
