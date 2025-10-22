@@ -1,13 +1,12 @@
 import logging
 import os
-import google.generativeai as genai
+from openai import OpenAI
 from app.schemas import HousingRequest, FacilitySummary, ComparisonResult
 from dotenv import load_dotenv
 import time
 
 load_dotenv()
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel("gemini-2.0-flash")
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 SUMMARY_CACHE = {}
 
@@ -68,23 +67,29 @@ def generate_summary(req: HousingRequest, fac: FacilitySummary, cmp: ComparisonR
         for attempt in range(2):
             try:
                 start = time.time()
-                response = model.generate_content(
-                    prompt,
-                    request_options={"timeout": 5}
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": "당신은 부동산 매물 정보를 분석하고 요약하는 AI 어시스턴트입니다."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    timeout=5,
+                    temperature=0.7,
+                    max_tokens=200
                 )
                 duration = round(time.time() - start, 2)
-                logging.info(f"[Gemini 요약 완료] {duration}초 소요 (시도 {attempt+1})")
-                text = response.text.strip()
+                logging.info(f"[OpenAI 요약 완료] {duration}초 소요 (시도 {attempt+1})")
+                text = response.choices[0].message.content.strip()
 
                 # 캐시에 저장
                 SUMMARY_CACHE[cache_key] = text
                 return text
             except Exception as e:
-                logging.warning(f"[Gemini 시도 {attempt+1} 실패] {e}")
+                logging.warning(f"[OpenAI 시도 {attempt+1} 실패] {e}")
                 time.sleep(0.5)
 
         return "요약을 생성할 수 없습니다. 나중에 다시 시도해주세요."
 
     except Exception as e:
-        logging.warning(f"[Gemini 요약 실패] {e}")
+        logging.warning(f"[OpenAI 요약 실패] {e}")
         return "요약을 생성할 수 없습니다. 나중에 다시 시도해주세요."
