@@ -8,7 +8,7 @@ ROOMIT는 사용자에게 더 나은 주거 결정을 돕기 위해 **AI 기반 
 
 ### AI 요약 문장 생성
 
-- OpenAI API를 사용하여 매물 정보와 주변 환경을 바탕으로
+- Gemini API를 사용하여 매물 정보와 주변 환경을 바탕으로
 - **자연스러운 한 줄 요약 문장 생성**
 - 사용자에게 매물의 특징을 직관적으로 설명
 
@@ -34,7 +34,7 @@ ROOMIT는 사용자에게 더 나은 주거 결정을 돕기 위해 **AI 기반 
 
 | 기능 | 경로 | 설명 |
 | --- | --- | --- |
-| AI 요약 문장 | `/api/summary` | OpenAI 기반 매물 요약 문장 생성 |
+| AI 요약 문장 | `/api/summary` | Gemini 기반 매물 요약 문장 생성 |
 | 주변 편의시설 | `/api/facilities` | Kakao 장소 API 기반 주변 시설 목록 반환 |
 | 매물 비교 분석 | `/api/summary` 내부 포함 | 주변 유사 매물과 비교하여 가격/면적 차이 분석 |
 | 지역 매물 검색 | `/api/listings/search` | 키워드 기반 인근 매물 목록 검색 |
@@ -84,7 +84,7 @@ ROOMIT는 사용자에게 더 나은 주거 결정을 돕기 위해 **AI 기반 
 ## 기술 스택
 
 - **Python**, **FastAPI**
-- **OpenAI API** (AI 요약 생성)
+- **Gemini API** (AI 요약 생성)
 - **Kakao Maps API** (주소 ↔ 좌표 변환, 장소 검색)
 - **Naver 부동산 비공식 API 크롤링**
 - OpenCV, Shapely, numpy (지도 시각화 및 좌표 계산)
@@ -107,7 +107,7 @@ ROOMIT는 사용자에게 더 나은 주거 결정을 돕기 위해 **AI 기반 
 | **app.services.geolocation** | Kakao 주소 ↔ 좌표 변환 |
 | **app.services.facilities** | Kakao 주변시설 검색 |
 | **app.services.comparison** | 매물 비교 분석 |
-| **app.services.summary** | OpenAI API 요약 호출 |
+| **app.services.summary** | Gemini API 요약 호출 |
 
 ---
 
@@ -120,7 +120,7 @@ ROOMIT는 사용자에게 더 나은 주거 결정을 돕기 위해 **AI 기반 
 | app/services | geolocation.py | Kakao 주소 ↔ 좌표 변환 | httpx, dotenv |
 | app/services | facilities.py | Kakao 주변 시설 검색 | httpx, dotenv |
 | app/services | comparison.py | 매물 비교 분석 | src.util |
-| app/services | summary.py | OpenAI 요약 호출 | openai, dotenv |
+| app/services | summary.py | Gemini 요약 호출 | httpx, dotenv |
 
 ---
 

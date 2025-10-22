@@ -29,7 +29,7 @@
 ### 3) AI 요약 문장 생성
 
 - 입력: 매물 정보 + 주변 시설 정보 + 비교 결과
-- 처리: OpenAI API를 활용한 AI 문장 생성
+- 처리: Gemini API를 활용한 AI 문장 생성
 - 출력: 사용자가 이해하기 쉬운 1줄 요약 설명
 
 ### 4) 지역 기반 매물 리스트 검색
@@ -45,7 +45,7 @@
 | Python + FastAPI | 웹 서버 프레임워크 |
 | httpx / requests | 외부 API 통신 |
 | Kakao API | 주소 → 좌표 변환, 카테고리 장소 검색 |
-| OpenAI API | 자연어 요약 문장 생성 |
+| Gemini API | 자연어 요약 문장 생성 |
 | Numpy, OpenCV | 시각화 및 거리 계산, 지도 렌더링 |
 | Pydantic | 입력/출력 모델 정의 |
 | Shapely | 좌표 다각형 포함 여부 확인 |

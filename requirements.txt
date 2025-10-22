@@ -7,5 +7,5 @@ haversine
 shapely
 opencv-python-headless
 numpy
-openai
+google-generativeai
 pydantic

@@ -1,14 +1,23 @@
 import logging
 import os
-from openai import OpenAI
+import google.generativeai as genai
 from app.schemas import HousingRequest, FacilitySummary, ComparisonResult
 from dotenv import load_dotenv
 import time
+import random
 
 load_dotenv()
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+# 여러 Gemini 모델을 로테이션하여 사용 (Rate Limit 방지)
+AVAILABLE_MODELS = [
+    "gemini-2.0-flash-exp",
+    "gemini-1.5-flash",
+    "gemini-1.5-flash-8b",
+]
 
 SUMMARY_CACHE = {}
+MODEL_FAILURE_COUNT = {model_name: 0 for model_name in AVAILABLE_MODELS}
 
 def pyeong_to_m2(pyeong: float) -> float:
     return round(pyeong * 3.3, 1)
@@ -53,6 +62,14 @@ def build_prompt(area: float, deposit: int, monthly: int, fac: FacilitySummary, 
 [당신의 출력]
 """.strip()
 
+def get_best_available_model() -> str:
+    """실패 횟수가 가장 적은 모델을 선택"""
+    sorted_models = sorted(AVAILABLE_MODELS, key=lambda m: MODEL_FAILURE_COUNT[m])
+    # 실패 횟수가 같으면 랜덤으로 선택
+    best_count = MODEL_FAILURE_COUNT[sorted_models[0]]
+    best_models = [m for m in sorted_models if MODEL_FAILURE_COUNT[m] == best_count]
+    return random.choice(best_models)
+
 def generate_summary(req: HousingRequest, fac: FacilitySummary, cmp: ComparisonResult) -> str:
     try:
         # 입력값 캐싱 키 생성
@@ -63,33 +80,57 @@ def generate_summary(req: HousingRequest, fac: FacilitySummary, cmp: ComparisonR
         area_m2 = pyeong_to_m2(req.netLeasableArea)
         prompt = build_prompt(area_m2, req.deposit, req.monthly, fac, cmp)
 
-        # 자동 재시도 (최대 2회)
-        for attempt in range(2):
+        # 모든 모델을 시도 (Rate Limit 회피)
+        tried_models = []
+        for attempt in range(len(AVAILABLE_MODELS)):
             try:
+                # 가장 성공률이 높은 모델 선택
+                model_name = get_best_available_model()
+                
+                # 이미 시도한 모델은 제외
+                if model_name in tried_models:
+                    # 모든 모델을 시도했으면 다음으로
+                    remaining = [m for m in AVAILABLE_MODELS if m not in tried_models]
+                    if not remaining:
+                        break
+                    model_name = random.choice(remaining)
+                
+                tried_models.append(model_name)
+                model = genai.GenerativeModel(model_name)
+                
                 start = time.time()
-                response = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[
-                        {"role": "system", "content": "당신은 부동산 매물 정보를 분석하고 요약하는 AI 어시스턴트입니다."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    timeout=5,
-                    temperature=0.7,
-                    max_tokens=200
+                response = model.generate_content(
+                    prompt,
+                    request_options={"timeout": 5}
                 )
                 duration = round(time.time() - start, 2)
-                logging.info(f"[OpenAI 요약 완료] {duration}초 소요 (시도 {attempt+1})")
-                text = response.choices[0].message.content.strip()
-
+                
+                text = response.text.strip()
+                
+                # 성공하면 실패 카운트 감소 (최소 0)
+                MODEL_FAILURE_COUNT[model_name] = max(0, MODEL_FAILURE_COUNT[model_name] - 1)
+                
+                logging.info(f"[Gemini 요약 완료] 모델: {model_name}, {duration}초 소요")
+                
                 # 캐시에 저장
                 SUMMARY_CACHE[cache_key] = text
                 return text
+                
             except Exception as e:
-                logging.warning(f"[OpenAI 시도 {attempt+1} 실패] {e}")
-                time.sleep(0.5)
+                error_msg = str(e)
+                
+                # Rate Limit 에러면 해당 모델의 실패 카운트 증가
+                if "429" in error_msg or "Resource has been exhausted" in error_msg:
+                    MODEL_FAILURE_COUNT[model_name] = MODEL_FAILURE_COUNT.get(model_name, 0) + 5
+                    logging.warning(f"[Rate Limit] {model_name} - 다른 모델로 시도합니다.")
+                else:
+                    MODEL_FAILURE_COUNT[model_name] = MODEL_FAILURE_COUNT.get(model_name, 0) + 1
+                    logging.warning(f"[{model_name} 실패] {e}")
+                
+                time.sleep(0.3)
 
         return "요약을 생성할 수 없습니다. 나중에 다시 시도해주세요."
 
     except Exception as e:
-        logging.warning(f"[OpenAI 요약 실패] {e}")
+        logging.warning(f"[Gemini 요약 실패] {e}")
         return "요약을 생성할 수 없습니다. 나중에 다시 시도해주세요."
