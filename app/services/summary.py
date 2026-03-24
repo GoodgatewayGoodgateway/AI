@@ -11,7 +11,7 @@ genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 # 여러 Gemini 모델을 로테이션하여 사용 (Rate Limit 방지)
 AVAILABLE_MODELS = [
-    "gemini-2.0-flash-exp",
+    "gemini-2.0-flash",
     "gemini-1.5-flash",
     "gemini-1.5-flash-8b",
 ]

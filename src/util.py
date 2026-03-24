@@ -318,60 +318,225 @@ def get_all_on_sector(sector : NSector):
     neighbors = get_all_neighbors(sector)
     return (sector, things, neighbors)
 
-async def get_article_listings(loc: NLocation) -> list[dict]:
+_ARTICLE_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Referer": "https://m.land.naver.com/",
+    "Accept-Language": "ko-KR,ko;q=0.9",
+}
+
+# 표시명 → Naver API 코드 매핑
+_DISPLAY_TO_NAVER = {
+    "아파트": "APT", "APT": "APT", "A01": "APT",
+    "오피스텔": "OPST", "OPST": "OPST", "A02": "OPST",
+    "원룸": "OR", "OR": "OR", "C01": "OR",
+    "빌라": "VL", "VL": "VL", "다세대주택": "VL",
+    "다가구": "DDDGG", "DDDGG": "DDDGG", "다가구주택": "DDDGG",
+    "단독다가구": "HOJT:DDDGG",
+    "주택": "HOJT", "HOJT": "HOJT", "단독주택": "HOJT",
+    "연립주택": "JWJT", "JWJT": "JWJT",
+}
+_ALL_ARTICLE_TYPES = "APT:OPST:VL:DDDGG:HOJT:JWJT:OR"
+_ALL_COMPLEX_TYPES  = "APT:OPST"
+
+
+def _resolve_rlet_codes(estate_types: list[str] | None) -> str:
+    """사용자 입력 타입 목록 → Naver rletTpCd 문자열 변환"""
+    if not estate_types:
+        return _ALL_ARTICLE_TYPES
+    codes: list[str] = []
+    for t in estate_types:
+        mapped = _DISPLAY_TO_NAVER.get(t)
+        if mapped:
+            for c in mapped.split(":"):
+                if c not in codes:
+                    codes.append(c)
+    return ":".join(codes) if codes else _ALL_ARTICLE_TYPES
+
+
+async def get_article_listings(
+    loc: NLocation,
+    pages: int = 2,
+    estate_types: list[str] | None = None,
+) -> list[dict]:
+    """m.land.naver.com articleList API로 매물 조회 (APT 포함 전체 유형)
+
+    Args:
+        loc: 중심 좌표
+        pages: 조회할 페이지 수 (기본 2)
+        estate_types: 매물 유형 필터 목록. None이면 전체 조회.
+            예) ["원룸", "빌라"], ["APT", "OPST"]
+    """
     listings = []
     url = "https://m.land.naver.com/cluster/ajax/articleList"
+    rlet_code = _resolve_rlet_codes(estate_types)
+
+    for page in range(1, pages + 1):
+        params = {
+            "rletTpCd": rlet_code,
+            "tradTpCd": "A1:B1:B2",
+            "z": 15,
+            "lat": loc.lat,
+            "lon": loc.lon,
+            "btm": loc.lat - 0.008,
+            "lft": loc.lon - 0.015,
+            "top": loc.lat + 0.008,
+            "rgt": loc.lon + 0.015,
+            "page": page,
+        }
+
+        try:
+            res = requests.get(url, params=params, headers=_ARTICLE_HEADERS, timeout=10)
+            res.raise_for_status()
+            data = res.json()
+
+            articles = data.get("body") or []
+            if not articles:
+                break
+
+            coords_list = [(float(a["lat"]), float(a["lng"])) for a in articles]
+            addresses = await asyncio.gather(*[
+                coords_to_address(lat, lng) for lat, lng in coords_list
+            ])
+
+            for a, address_name in zip(articles, addresses):
+                try:
+                    deposit = int(a.get("prc", 0))
+                    monthly = int(a.get("rentPrc", 0))
+                    area_m2 = float(a.get("spc2") or 0.0)
+                    lat_a = float(a["lat"])
+                    lng_a = float(a["lng"])
+
+                    listings.append({
+                        "name": a.get("atclNm", "매물"),
+                        "address": address_name,
+                        "area": round(area_m2, 1),
+                        "deposit": deposit,
+                        "monthly": monthly,
+                        "price": deposit + monthly * 10,
+                        "lat": lat_a,
+                        "lng": lng_a,
+                        "type": a.get("rletTpNm", "기타"),
+                        "trade_type": a.get("tradTpNm", ""),
+                        "distance_km": round(distance_between(loc, NLocation(lat_a, lng_a)) / 1000, 2),
+                        "source": "article",
+                    })
+                except Exception as e:
+                    print(f"[article 파싱 실패] {e}")
+
+            if not data.get("more", False):
+                break
+
+        except Exception as e:
+            print(f"[articleList 요청 실패] page={page}: {e}")
+            break
+
+    return listings
+
+
+def _parse_price_han(price_str: str) -> int:
+    """'2억 9,000' 또는 HTML 포함 가격 문자열을 만원 단위 정수로 변환"""
+    import re
+    if not price_str or price_str == "0":
+        return 0
+    text = re.sub(r"<[^>]+>", "", price_str).strip()
+    total = 0
+    m_uk = re.search(r"(\d+)\s*억", text)
+    if m_uk:
+        total += int(m_uk.group(1)) * 10000
+    m_man = re.search(r"억\s*([\d,]+)", text)
+    if m_man:
+        total += int(m_man.group(1).replace(",", ""))
+    elif not m_uk:
+        m_only = re.search(r"([\d,]+)", text)
+        if m_only:
+            total = int(m_only.group(1).replace(",", ""))
+    return total
+
+
+async def get_complex_listings(
+    loc: NLocation,
+    estate_types: list[str] | None = None,
+) -> list[dict]:
+    """m.land.naver.com complexList API로 복합단지(아파트/오피스텔) 목록 조회
+
+    Args:
+        loc: 중심 좌표
+        estate_types: 매물 유형 필터. None이면 APT+OPST 전체 조회.
+            복합단지는 APT·OPST만 지원합니다.
+    """
+    # complexList는 APT/OPST만 지원 — 다른 유형이 섞여 있어도 필터
+    if estate_types:
+        allowed = {"APT", "OPST", "아파트", "오피스텔", "A01", "A02"}
+        if not any(t in allowed for t in estate_types):
+            return []  # APT/OPST가 없으면 조회 불필요
+
+    listings = []
+    url = "https://m.land.naver.com/cluster/ajax/complexList"
     params = {
-        "rletTpCd": "VL:DDDGG:HOJT:JWJT:OR",
+        "rletTpCd": "APT:OPST",
         "tradTpCd": "A1:B1:B2",
-        "z": 16,
+        "z": 15,
         "lat": loc.lat,
         "lon": loc.lon,
-        "btm": loc.lat - 0.005,
-        "lft": loc.lon - 0.01,
-        "top": loc.lat + 0.005,
-        "rgt": loc.lon + 0.01,
-        "page": 1
+        "btm": loc.lat - 0.008,
+        "lft": loc.lon - 0.015,
+        "top": loc.lat + 0.008,
+        "rgt": loc.lon + 0.015,
     }
 
     try:
-        res = requests.get(url, params=params, headers={"User-Agent": "Mozilla/5.0"})
+        res = requests.get(url, params=params, headers=_ARTICLE_HEADERS, timeout=10)
         res.raise_for_status()
         data = res.json()
 
-        articles = data.get("body", [])
-        coords_list = [(float(a["lat"]), float(a["lng"])) for a in articles]
-        
-        addresses = await asyncio.gather(*[
-            coords_to_address(lat, lng) for lat, lng in coords_list
-        ])
+        complexes = data.get("result") or []
+        print(f"[complexList] 응답 단지 수: {len(complexes)}, 상태코드: {res.status_code}")
+        for c in complexes:
+            total_cnt = int(c.get("totalAtclCnt", 0))
+            min_spc = float(c.get("minSpc") or 0)
+            if total_cnt == 0 or min_spc == 0:
+                continue
 
-        for a, address_name in zip(articles, addresses):
-            try:
-                deposit = int(a.get("prc", 0))
-                monthly = int(a.get("rentPrc", 0))
-                area_m2 = float(a.get("spc2", 0) or 0.0)
-                lat_a = float(a["lat"])
-                lng_a = float(a["lng"])
+            deal_min = _parse_price_han(c.get("dealPrcMin", "0"))
+            deal_max = _parse_price_han(c.get("dealPrcMax", "0"))
+            lease_min = _parse_price_han(c.get("leasePrcMin", "0"))
 
-                listings.append({
-                    "name": a.get("atclNm", "매물"),
-                    "address": address_name,
-                    "area": round(area_m2, 1),
-                    "deposit": deposit,
-                    "monthly": monthly,
-                    "price": deposit + monthly * 10,
-                    "lat": lat_a,
-                    "lng": lng_a,
-                    "type": a.get("rletTpNm", "기타"),
-                    "distance_km": round(distance_between(loc, NLocation(lat_a, lng_a)) / 1000, 2),
-                    "source": "article"
-                })
-            except Exception as e:
-                print(f"[article 파싱 실패] {e}")
+            # 매매 > 전세 순으로 대표가 선택
+            if deal_min and deal_max:
+                avg_price = (deal_min + deal_max) // 2
+            elif lease_min:
+                avg_price = lease_min
+            else:
+                continue
+
+            listings.append({
+                "name": c.get("hscpNm", "단지"),
+                "address": c.get("hscpNm", "단지"),
+                "area": round(min_spc, 1),
+                "deposit": avg_price,
+                "monthly": 0,
+                "price": avg_price,
+                "lat": loc.lat,
+                "lng": loc.lon,
+                "type": c.get("hscpTypeNm", "아파트"),
+                "trade_type": "매매/전세",
+                "distance_km": 0.0,
+                "source": "complex",
+                "hscp_no": c.get("hscpNo"),
+                "deal_cnt": int(c.get("dealCnt", 0)),
+                "lease_cnt": int(c.get("leaseCnt", 0)),
+                "rent_cnt": int(c.get("rentCnt", 0)),
+                "total_cnt": total_cnt,
+            })
     except Exception as e:
-        print(f"[articleList 요청 실패] {e}")
+        print(f"[complexList 요청 실패] {type(e).__name__}: {e}")
+        raise  # gather가 잡을 수 있도록 re-raise
 
+    print(f"[complexList] 유효 단지 반환: {len(listings)}건")
     return listings
 
 # 비동기 get_things

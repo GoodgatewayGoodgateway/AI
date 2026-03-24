@@ -9,3 +9,4 @@ opencv-python-headless
 numpy
 google-generativeai
 pydantic
+mysql-connector-python

@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes import housing_detail
 from app.services.geolocation import set_shared_client, close_shared_client
+from app.database import init_db
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 import httpx
@@ -11,6 +12,7 @@ load_dotenv()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    init_db()
     client = httpx.AsyncClient()
     set_shared_client(client)
     yield
