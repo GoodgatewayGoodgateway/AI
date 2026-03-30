@@ -153,6 +153,35 @@ def delete_favorite(favorite_id: int, user_id: str) -> bool:
     return affected > 0
 
 
+# 초기화 가능한 테이블 목록 (SQL 인젝션 방지용 화이트리스트)
+_RESETTABLE_TABLES = {"listings", "favorites"}
+
+
+def reset_table_auto_increment(table: str) -> dict:
+    """
+    테이블의 모든 데이터를 삭제하고 AUTO_INCREMENT를 1로 초기화.
+    TRUNCATE를 사용하므로 외래키 제약이 없는 테이블에서만 안전하게 동작.
+    허용된 테이블: listings, favorites
+    """
+    if table not in _RESETTABLE_TABLES:
+        raise ValueError(f"허용되지 않은 테이블입니다: {table}")
+
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    cursor.execute(f"SELECT COUNT(*) AS cnt FROM `{table}`")
+    before = cursor.fetchone()["cnt"]
+
+    cursor.execute(f"TRUNCATE TABLE `{table}`")
+    conn.commit()
+
+    cursor.close()
+    conn.close()
+
+    logger.info(f"[DB] {table} 테이블 초기화 완료 (삭제 전 {before}건, AUTO_INCREMENT=1)")
+    return {"table": table, "deleted_count": before, "auto_increment": 1}
+
+
 def get_market_trend_db(area: str, listing_type: Optional[str] = None) -> list:
     """지역·타입별 날짜별 평균 가격 트렌드 조회"""
     conn = get_connection()

@@ -14,7 +14,7 @@ from app.services.score import calculate_score
 from app.database import (
     save_listings, get_listing_by_id_db,
     add_favorite, get_favorites_db, delete_favorite,
-    get_market_trend_db,
+    get_market_trend_db, reset_table_auto_increment,
 )
 from src.classes import NLocation
 from src.util import get_article_listings, get_complex_listings
@@ -746,4 +746,34 @@ async def recommend_listings(data: RecommendRequest = Body(...)):
         return {"query": data.query, "total_filtered": len(filtered), "recommendations": recommendations}
     except Exception as e:
         logger.error(f"[추천 매물 실패] {e}")
+        return {"error": str(e)}
+
+
+# ──────────────────────────────────────────────
+# 테이블 ID 초기화
+# ──────────────────────────────────────────────
+
+@router.post(
+    "/admin/reset/{table}",
+    summary="테이블 초기화 (AUTO_INCREMENT 리셋)",
+    description=(
+        "테이블의 모든 데이터를 삭제하고 AUTO_INCREMENT를 1로 초기화합니다.\n\n"
+        "Path Variable:\n\n"
+        "- table (필수): 초기화할 테이블명\n\n"
+        "허용된 테이블:\n"
+        "- `listings` — 수집된 매물 데이터\n"
+        "- `favorites` — 즐겨찾기 데이터\n\n"
+        "**주의:** 해당 테이블의 모든 데이터가 영구 삭제됩니다. 되돌릴 수 없습니다."
+    ),
+    response_description="초기화 결과 (삭제된 행 수, 초기화된 AUTO_INCREMENT 값)",
+)
+async def reset_table(table: str):
+    try:
+        result = await asyncio.to_thread(reset_table_auto_increment, table)
+        logger.info(f"[테이블 초기화] {table} 완료")
+        return result
+    except ValueError as e:
+        return {"error": str(e)}
+    except Exception as e:
+        logger.error(f"[테이블 초기화 실패] {e}")
         return {"error": str(e)}
