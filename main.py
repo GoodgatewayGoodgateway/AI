@@ -1,6 +1,5 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import housing_detail
 from app.services.geolocation import set_shared_client, close_shared_client
 from app.database import init_db, reset_table_auto_increment
 from dotenv import load_dotenv
@@ -10,8 +9,12 @@ import httpx
 import logging
 import os
 
+# 라우터 — 도메인별 분리
+from app.routes import analysis, listings, market, recommend, favorites, admin
+
 load_dotenv()
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 RESET_INTERVAL_SECONDS = 10 * 60  # 10분
@@ -41,7 +44,6 @@ async def lifespan(app: FastAPI):
     client = httpx.AsyncClient()
     set_shared_client(client)
 
-    # 10분 주기 초기화 태스크 시작
     reset_task = asyncio.create_task(_periodic_reset())
 
     yield
@@ -56,6 +58,7 @@ async def lifespan(app: FastAPI):
 
     await close_shared_client()
 
+
 app = FastAPI(lifespan=lifespan)
 
 # CORS 설정
@@ -67,11 +70,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 라우터 등록
-app.include_router(housing_detail.router, prefix="/api", tags=["주택 상세 정보"])
+# ── 헬스체크 (Railway 헬스체크 경로) ──────────────────────
+@app.get("/health", tags=["헬스체크"])
+def health_check():
+    return {"status": "ok"}
+
+# ── 라우터 등록 ────────────────────────────────────────────
+app.include_router(analysis.router,   prefix="/api", tags=["분석"])
+app.include_router(listings.router,   prefix="/api", tags=["매물 검색"])
+app.include_router(market.router,     prefix="/api", tags=["시세 분석"])
+app.include_router(recommend.router,  prefix="/api", tags=["추천"])
+app.include_router(favorites.router,  prefix="/api", tags=["즐겨찾기"])
+app.include_router(admin.router,      prefix="/api", tags=["관리"])
 
 if __name__ == "__main__":
     import uvicorn
-    host = os.getenv("HOST", "127.0.0.1")
-    port = int(os.getenv("PORT", 8000))
+    host = os.getenv("HOST", "0.0.0.0")
+    port = int(os.getenv("PORT", 8888))
     uvicorn.run("main:app", host=host, port=port, reload=True)

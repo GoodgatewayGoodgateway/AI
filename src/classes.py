@@ -1,5 +1,12 @@
-from shapely.geometry import Point, Polygon
-import cv2
+# shapely / cv2 는 레거시 시각화 기능(NMap, NDimension)에서만 사용됨.
+# 프로덕션 경량화를 위해 없어도 앱이 기동되도록 조건부 임포트 처리.
+try:
+    from shapely.geometry import Point, Polygon
+    import cv2
+    _HAS_VISUAL_DEPS = True
+except ImportError:
+    _HAS_VISUAL_DEPS = False
+
 import numpy as np
 
 #Con

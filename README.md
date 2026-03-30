@@ -137,7 +137,44 @@ python main.py
 
 ---
 
-## 배포 환경
+## Deployment — Railway
+
+### 1. Railway 프로젝트 생성
+
+1. [railway.app](https://railway.app) 로그인 후 **New Project** 클릭
+2. **Deploy from GitHub repo** → 이 레포 선택
+
+### 2. MySQL 플러그인 추가
+
+1. 프로젝트 대시보드 → **+ New** → **Database** → **MySQL** 선택
+2. Railway가 `MYSQLHOST`, `MYSQLPORT`, `MYSQLUSER`, `MYSQLPASSWORD`, `MYSQLDATABASE` 환경변수를 자동 주입합니다.
+
+### 3. 환경변수 설정
+
+**Settings → Variables** 에서 아래 값을 추가합니다. (`.env.example` 참고)
+
+| 변수 | 설명 |
+| --- | --- |
+| `KAKAO_REST_API_KEY` | Kakao Developers REST API 키 |
+| `GEMINI_API_KEY` | Google AI Studio API 키 |
+| `ADMIN_SECRET_KEY` | `/api/admin/reset` 엔드포인트 인증 키 |
+| `PORT` | `8888` |
+
+### 4. 배포
+
+Railway가 `Dockerfile`을 감지해 자동 빌드·배포합니다.
+헬스체크 경로: `GET /health` → `{"status": "ok"}`
+
+### 5. 확인
+
+```text
+https://<your-app>.railway.app/docs   # Swagger UI
+https://<your-app>.railway.app/health # 헬스체크
+```
+
+---
+
+## 배포 환경 (GCP — 레거시)
 
 - **플랫폼**: GCP Compute Engine (Ubuntu 22.04)
 - **실행**: `systemd` 서비스로 백그라운드 상시 실행

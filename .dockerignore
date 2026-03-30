@@ -1,0 +1,17 @@
+.env
+.git
+.gitignore
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+.idea/
+.vscode/
+*.md
+Dockerfile
+railway.toml
+.dockerignore

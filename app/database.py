@@ -1,17 +1,24 @@
 import logging
+import os
 from typing import Optional
 import mysql.connector
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+# Railway MySQL 플러그인은 MYSQLHOST/MYSQLUSER/... 환경변수를 제공함
+# 로컬 개발 시에는 DB_HOST/DB_USER/... 를 .env에 설정
 DB_CONFIG = {
-    "host": "localhost",
-    "user": "root",
-    "password": "1234",
-    "charset": "utf8mb4",
+    "host":     os.getenv("MYSQLHOST")     or os.getenv("DB_HOST", "localhost"),
+    "port":     int(os.getenv("MYSQLPORT") or os.getenv("DB_PORT", 3306)),
+    "user":     os.getenv("MYSQLUSER")     or os.getenv("DB_USER"),
+    "password": os.getenv("MYSQLPASSWORD") or os.getenv("DB_PASSWORD"),
+    "charset":  "utf8mb4",
 }
 
-DB_NAME = "roomitai"
+DB_NAME = os.getenv("MYSQLDATABASE") or os.getenv("DB_NAME", "roomitai")
 
 
 def get_connection():
@@ -159,8 +166,8 @@ _RESETTABLE_TABLES = {"listings", "favorites"}
 
 def reset_table_auto_increment(table: str) -> dict:
     """
-    테이블의 모든 데이터를 삭제하고 AUTO_INCREMENT를 1로 초기화.
-    TRUNCATE를 사용하므로 외래키 제약이 없는 테이블에서만 안전하게 동작.
+    테이블 데이터를 삭제하고 AUTO_INCREMENT를 1로 초기화.
+    listings 테이블은 favorites에서 참조 중인 행을 보호한다.
     허용된 테이블: listings, favorites
     """
     if table not in _RESETTABLE_TABLES:
@@ -172,14 +179,25 @@ def reset_table_auto_increment(table: str) -> dict:
     cursor.execute(f"SELECT COUNT(*) AS cnt FROM `{table}`")
     before = cursor.fetchone()["cnt"]
 
-    cursor.execute(f"TRUNCATE TABLE `{table}`")
-    conn.commit()
+    if table == "listings":
+        # favorites에서 참조 중인 listing_id는 삭제하지 않음
+        cursor.execute("""
+            DELETE FROM listings
+            WHERE id NOT IN (SELECT listing_id FROM favorites)
+        """)
+        deleted = cursor.rowcount
+        # 테이블이 비었을 때만 AUTO_INCREMENT = 1이 실제로 적용됨
+        cursor.execute("ALTER TABLE listings AUTO_INCREMENT = 1")
+    else:
+        cursor.execute(f"TRUNCATE TABLE `{table}`")
+        deleted = before
 
+    conn.commit()
     cursor.close()
     conn.close()
 
-    logger.info(f"[DB] {table} 테이블 초기화 완료 (삭제 전 {before}건, AUTO_INCREMENT=1)")
-    return {"table": table, "deleted_count": before, "auto_increment": 1}
+    logger.info(f"[DB] {table} 초기화 완료 (삭제 {deleted}건, 보호 {before - deleted}건)")
+    return {"table": table, "deleted_count": deleted, "protected_count": before - deleted, "auto_increment": 1}
 
 
 def get_market_trend_db(area: str, listing_type: Optional[str] = None) -> list:
