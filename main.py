@@ -33,13 +33,13 @@ async def _periodic_reset():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 시작 시 초기화
-    init_db()
+    # 시작 시 초기화 — DB 연결 실패해도 서버는 기동 유지
     try:
+        init_db()
         result = await asyncio.to_thread(reset_table_auto_increment, "listings")
         logger.info(f"[서버 시작] listings 초기화 완료 ({result['deleted_count']}건 삭제, AUTO_INCREMENT=1)")
     except Exception as e:
-        logger.error(f"[서버 시작 초기화 실패] {e}")
+        logger.error(f"[서버 시작 초기화 실패] {e} — DB 없이 기동 계속")
 
     client = httpx.AsyncClient()
     set_shared_client(client)

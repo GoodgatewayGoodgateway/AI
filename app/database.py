@@ -1,5 +1,6 @@
 import logging
 import os
+import urllib.parse
 from typing import Optional
 import mysql.connector
 from dotenv import load_dotenv
@@ -8,17 +9,41 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# Railway MySQL 플러그인은 MYSQLHOST/MYSQLUSER/... 환경변수를 제공함
-# 로컬 개발 시에는 DB_HOST/DB_USER/... 를 .env에 설정
-DB_CONFIG = {
-    "host":     os.getenv("MYSQLHOST")     or os.getenv("DB_HOST", "localhost"),
-    "port":     int(os.getenv("MYSQLPORT") or os.getenv("DB_PORT", 3306)),
-    "user":     os.getenv("MYSQLUSER")     or os.getenv("DB_USER"),
-    "password": os.getenv("MYSQLPASSWORD") or os.getenv("DB_PASSWORD"),
-    "charset":  "utf8mb4",
-}
 
-DB_NAME = os.getenv("MYSQLDATABASE") or os.getenv("DB_NAME", "roomitai")
+def _build_db_config() -> tuple[dict, str]:
+    """
+    DB 접속 정보 우선순위:
+      1. MYSQL_URL (Railway가 주입하는 전체 연결 URL)
+      2. MYSQLHOST / MYSQLUSER / ... (Railway 개별 변수)
+      3. DB_HOST / DB_USER / ... (로컬 .env 변수)
+    """
+    mysql_url = os.getenv("MYSQL_URL") or os.getenv("DATABASE_URL")
+    if mysql_url:
+        # mysql://user:password@host:port/dbname
+        parsed = urllib.parse.urlparse(mysql_url)
+        config = {
+            "host":     parsed.hostname,
+            "port":     parsed.port or 3306,
+            "user":     parsed.username,
+            "password": parsed.password,
+            "charset":  "utf8mb4",
+        }
+        db_name = parsed.path.lstrip("/") or "roomitai"
+        logger.info(f"[DB] MYSQL_URL로 접속 설정: {parsed.hostname}:{parsed.port}/{db_name}")
+        return config, db_name
+
+    config = {
+        "host":     os.getenv("MYSQLHOST")     or os.getenv("DB_HOST", "localhost"),
+        "port":     int(os.getenv("MYSQLPORT") or os.getenv("DB_PORT", 3306)),
+        "user":     os.getenv("MYSQLUSER")     or os.getenv("DB_USER"),
+        "password": os.getenv("MYSQLPASSWORD") or os.getenv("DB_PASSWORD"),
+        "charset":  "utf8mb4",
+    }
+    db_name = os.getenv("MYSQLDATABASE") or os.getenv("DB_NAME", "roomitai")
+    return config, db_name
+
+
+DB_CONFIG, DB_NAME = _build_db_config()
 
 
 def get_connection():
