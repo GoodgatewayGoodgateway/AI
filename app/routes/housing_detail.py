@@ -2,12 +2,20 @@ import logging
 import asyncio, requests, time
 from fastapi import APIRouter, Body, Query
 from typing import List, Optional
-from app.schemas import HousingRequest, FacilitySummary, ComparisonResult
+from app.schemas import (
+    HousingRequest, FacilitySummary, ComparisonResult,
+    RecommendRequest, FavoriteRequest,
+)
 from app.services.geolocation import address_to_coords, coords_to_address
 from app.services.facilities import async_get_nearby_facilities
 from app.services.comparison import compare_with_similars
 from app.services.summary import generate_summary
-from app.database import save_listings, get_listing_by_id_db
+from app.services.score import calculate_score
+from app.database import (
+    save_listings, get_listing_by_id_db,
+    add_favorite, get_favorites_db, delete_favorite,
+    get_market_trend_db,
+)
 from src.classes import NLocation
 from src.util import get_article_listings, get_complex_listings
 
@@ -436,3 +444,306 @@ def get_listing_by_id(id: int):
     if row:
         return row
     return {"error": f"해당 ID({id})의 매물이 존재하지 않습니다."}
+
+
+# ──────────────────────────────────────────────
+# 지역 시세 통계
+# ──────────────────────────────────────────────
+
+@router.get(
+    "/market/stats",
+    summary="지역 시세 통계 조회",
+    description=(
+        "지역명을 입력하면 해당 지역의 매물 수, 타입별 평균 가격·면적, 가격 범위를 반환합니다.\n\n"
+        "Query Parameters:\n\n"
+        "- query (필수): 지역명 또는 주소. 예) 강남구, 홍대입구역\n"
+        "- type (선택): 매물 유형 필터. 예) 원룸, 빌라\n\n"
+        "Response:\n\n"
+        "- total_count: 전체 매물 수\n"
+        "- by_type: 타입별 { count, avg_price(만원), avg_area_m2 }\n"
+        "- price_range: { min, max } 환산가격 (만원)"
+    ),
+    response_description="지역 시세 통계",
+)
+async def get_market_stats(
+    query: str = Query(..., description="지역명 또는 주소. 예) 강남구"),
+    type: Optional[str] = Query(None, description="매물 유형 필터 (선택). 예) 원룸"),
+):
+    start = time.perf_counter()
+    try:
+        lat, lng = await address_to_coords(query)
+        loc = NLocation(lat, lng)
+        type_filter = [type] if type else None
+
+        results = await asyncio.gather(
+            get_article_listings(loc, pages=2, estate_types=type_filter),
+            get_complex_listings(loc, estate_types=type_filter),
+            return_exceptions=True,
+        )
+
+        listings = []
+        for r in results:
+            if not isinstance(r, Exception):
+                listings.extend(r)
+
+        if not listings:
+            return {"area": query, "total_count": 0, "by_type": {}, "price_range": {"min": 0, "max": 0}}
+
+        by_type: dict = {}
+        for l in listings:
+            t = l.get("type", "기타")
+            if t not in by_type:
+                by_type[t] = {"count": 0, "total_price": 0, "total_area": 0.0}
+            by_type[t]["count"] += 1
+            by_type[t]["total_price"] += l.get("price", 0)
+            by_type[t]["total_area"] += l.get("area", 0.0)
+
+        by_type_stats = {
+            t: {
+                "count": v["count"],
+                "avg_price": int(v["total_price"] / v["count"]) if v["count"] else 0,
+                "avg_area_m2": round(v["total_area"] / v["count"], 1) if v["count"] else 0.0,
+            }
+            for t, v in by_type.items()
+        }
+
+        prices = [l.get("price", 0) for l in listings if l.get("price")]
+        logger.info(f"[시세 통계] {query} {len(listings)}건 {time.perf_counter() - start:.2f}초")
+        return {
+            "area": query,
+            "total_count": len(listings),
+            "by_type": by_type_stats,
+            "price_range": {"min": min(prices) if prices else 0, "max": max(prices) if prices else 0},
+        }
+    except Exception as e:
+        logger.error(f"[시세 통계 실패] {e}")
+        return {"error": str(e)}
+
+
+# ──────────────────────────────────────────────
+# 매물 종합 점수
+# ──────────────────────────────────────────────
+
+@router.post(
+    "/score",
+    summary="매물 종합 점수 평가",
+    description=(
+        "매물 정보를 입력하면 가격·편의시설·교통을 종합한 점수(0~100)와 등급을 반환합니다.\n\n"
+        "Request Body: HousingRequest (address, netLeasableArea, deposit, monthly, type)\n\n"
+        "Response:\n\n"
+        "- total_score: 종합 점수 (0~100)\n"
+        "- breakdown.price_score: 가격 점수 — 시세 대비 저렴할수록 높음 (가중치 50%)\n"
+        "- breakdown.facilities_score: 편의시설 점수 — 반경 1500m 내 시설 수 기반 (가중치 30%)\n"
+        "- breakdown.transit_score: 교통 점수 — 반경 1500m 내 지하철역 수 기반 (가중치 20%)\n"
+        "- grade: S / A / B / C / D / F"
+    ),
+    response_description="매물 종합 점수 및 등급",
+)
+async def score_listing(data: HousingRequest = Body(...)):
+    try:
+        lat, lng = await address_to_coords(data.address)
+        area_m2 = pyeong_to_m2(data.netLeasableArea)
+        inferred_type_name = data.type or await infer_type_from_address(data.address)
+        inferred_type_code = TYPE_LABEL_TO_CODE.get(inferred_type_name, "APT")
+
+        result = await calculate_score(
+            area_m2=area_m2, deposit=data.deposit, monthly=data.monthly,
+            lat=lat, lng=lng, target_type=inferred_type_code,
+        )
+        return result
+    except Exception as e:
+        logger.error(f"[점수 평가 실패] {e}")
+        return {"error": str(e)}
+
+
+# ──────────────────────────────────────────────
+# 가격 트렌드
+# ──────────────────────────────────────────────
+
+@router.get(
+    "/market/trend",
+    summary="지역 가격 트렌드 조회",
+    description=(
+        "지역명과 유형을 입력하면 날짜별 평균 환산가격 추이를 반환합니다.\n\n"
+        "데이터는 listings/search 또는 listings/all 조회 시 DB에 축적됩니다.\n\n"
+        "Query Parameters:\n\n"
+        "- query (필수): 지역명. 예) 마포구\n"
+        "- type (선택): 매물 유형 필터. 예) 원룸\n\n"
+        "Response:\n\n"
+        "- trend: [ { date, avg_price(만원), count } ] — 날짜 오름차순"
+    ),
+    response_description="날짜별 평균 가격 트렌드",
+)
+async def get_market_trend(
+    query: str = Query(..., description="지역명. 예) 마포구"),
+    type: Optional[str] = Query(None, description="매물 유형 필터 (선택). 예) 원룸"),
+):
+    try:
+        rows = await asyncio.to_thread(get_market_trend_db, query, type)
+        trend = [
+            {"date": str(r["date"]), "avg_price": int(r["avg_price"] or 0), "count": r["count"]}
+            for r in rows
+        ]
+        return {"area": query, "type": type, "trend": trend}
+    except Exception as e:
+        logger.error(f"[트렌드 조회 실패] {e}")
+        return {"error": str(e)}
+
+
+# ──────────────────────────────────────────────
+# 즐겨찾기
+# ──────────────────────────────────────────────
+
+@router.post(
+    "/favorites",
+    summary="즐겨찾기 추가",
+    description=(
+        "매물 ID를 즐겨찾기에 추가합니다.\n\n"
+        "Request Body:\n\n"
+        "- user_id (필수): 사용자 식별자. 앱에서 관리하는 고유값을 사용하세요.\n"
+        "- listing_id (필수): 즐겨찾기할 매물 ID (listings/search 응답의 id 필드)\n\n"
+        "이미 즐겨찾기된 매물이면 error를 반환합니다."
+    ),
+    response_description="생성된 즐겨찾기 항목",
+)
+async def create_favorite(data: FavoriteRequest = Body(...)):
+    try:
+        result = await asyncio.to_thread(add_favorite, data.user_id, data.listing_id)
+        if result is None:
+            return {"error": "이미 즐겨찾기에 추가된 매물입니다."}
+        return result
+    except Exception as e:
+        logger.error(f"[즐겨찾기 추가 실패] {e}")
+        return {"error": str(e)}
+
+
+@router.get(
+    "/favorites/{user_id}",
+    summary="즐겨찾기 목록 조회",
+    description=(
+        "user_id에 해당하는 즐겨찾기 매물 목록을 반환합니다.\n\n"
+        "Path Variable:\n\n"
+        "- user_id (필수): 사용자 식별자\n\n"
+        "Response: 즐겨찾기 순으로 정렬된 매물 목록 (listings 테이블과 JOIN)"
+    ),
+    response_description="즐겨찾기 매물 목록",
+)
+async def list_favorites(user_id: str):
+    try:
+        rows = await asyncio.to_thread(get_favorites_db, user_id)
+        return {"favorites": rows}
+    except Exception as e:
+        logger.error(f"[즐겨찾기 조회 실패] {e}")
+        return {"error": str(e)}
+
+
+@router.delete(
+    "/favorites/{favorite_id}",
+    summary="즐겨찾기 삭제",
+    description=(
+        "즐겨찾기 항목을 삭제합니다.\n\n"
+        "Path Variable:\n\n"
+        "- favorite_id (필수): 즐겨찾기 항목 ID (favorites 생성 응답의 id 필드)\n\n"
+        "Query Parameter:\n\n"
+        "- user_id (필수): 본인 항목만 삭제 가능합니다.\n\n"
+        "삭제 성공 시 deleted: true를 반환합니다."
+    ),
+    response_description="삭제 결과",
+)
+async def remove_favorite(
+    favorite_id: int,
+    user_id: str = Query(..., description="사용자 식별자"),
+):
+    try:
+        deleted = await asyncio.to_thread(delete_favorite, favorite_id, user_id)
+        if not deleted:
+            return {"error": "해당 즐겨찾기 항목이 없거나 권한이 없습니다."}
+        return {"deleted": True, "favorite_id": favorite_id}
+    except Exception as e:
+        logger.error(f"[즐겨찾기 삭제 실패] {e}")
+        return {"error": str(e)}
+
+
+# ──────────────────────────────────────────────
+# AI 추천 매물
+# ──────────────────────────────────────────────
+
+@router.post(
+    "/recommend",
+    summary="조건 기반 추천 매물 조회",
+    description=(
+        "예산·면적·유형 조건을 입력하면 해당 지역에서 가성비가 높은 매물을 추천합니다.\n\n"
+        "Request Body:\n\n"
+        "- query (필수): 지역명 또는 주소. 예) 마포구\n"
+        "- max_deposit (선택): 최대 보증금 (만원)\n"
+        "- max_monthly (선택): 최대 월세 (만원)\n"
+        "- min_area_pyeong (선택): 최소 면적 (평)\n"
+        "- preferred_types (선택): 선호 유형 목록. 예) ['원룸', '빌라']\n"
+        "- top_n (선택, 기본 5): 추천 매물 수 (최대 20)\n\n"
+        "Response:\n\n"
+        "- recommendations: 가성비(단위면적당 가격) 순 정렬된 매물 목록\n"
+        "- each item: id, address, area_m2, area_pyeong, deposit, monthly, price, price_per_m2, type, lat, lng"
+    ),
+    response_description="조건 기반 추천 매물 목록",
+)
+async def recommend_listings(data: RecommendRequest = Body(...)):
+    start = time.perf_counter()
+    try:
+        lat, lng = await address_to_coords(data.query)
+        loc = NLocation(lat, lng)
+        type_filter = data.preferred_types or None
+
+        results = await asyncio.gather(
+            get_article_listings(loc, pages=2, estate_types=type_filter),
+            get_complex_listings(loc, estate_types=type_filter),
+            return_exceptions=True,
+        )
+
+        listings = []
+        for r in results:
+            if not isinstance(r, Exception):
+                listings.extend(r)
+
+        min_area_m2 = pyeong_to_m2(data.min_area_pyeong) if data.min_area_pyeong else None
+
+        filtered = []
+        for l in listings:
+            if data.max_deposit is not None and l.get("deposit", 0) > data.max_deposit:
+                continue
+            if data.max_monthly is not None and l.get("monthly", 0) > data.max_monthly:
+                continue
+            if min_area_m2 is not None and l.get("area", 0) < min_area_m2:
+                continue
+            filtered.append(l)
+
+        # 가성비 정렬: 단위면적당 환산가격 낮을수록 상위
+        def price_per_m2(l):
+            area = l.get("area") or 1
+            return l.get("price", 0) / area
+
+        sorted_listings = sorted(filtered, key=price_per_m2)[:data.top_n]
+
+        saved = await asyncio.to_thread(save_listings, sorted_listings, data.query)
+
+        recommendations = [
+            {
+                "id": s.get("id"),
+                "address": s.get("address"),
+                "area_m2": round(s.get("area", 0), 1),
+                "area_pyeong": to_pyeong(s.get("area", 0)),
+                "deposit": s.get("deposit"),
+                "monthly": s.get("monthly"),
+                "price": s.get("price"),
+                "price_per_m2": round(price_per_m2(s), 1),
+                "type": s.get("type"),
+                "lat": s.get("lat"),
+                "lng": s.get("lng"),
+            }
+            for s in saved
+        ]
+
+        logger.info(f"[추천 매물] {data.query} 조건 충족 {len(filtered)}건 중 {len(recommendations)}건 반환 {time.perf_counter() - start:.2f}초")
+        return {"query": data.query, "total_filtered": len(filtered), "recommendations": recommendations}
+    except Exception as e:
+        logger.error(f"[추천 매물 실패] {e}")
+        return {"error": str(e)}

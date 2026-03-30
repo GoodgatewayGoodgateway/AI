@@ -45,6 +45,15 @@ def init_db():
             created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS favorites (
+            id          INT AUTO_INCREMENT PRIMARY KEY,
+            user_id     VARCHAR(100) NOT NULL,
+            listing_id  INT NOT NULL,
+            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY unique_fav (user_id, listing_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """)
     conn.commit()
     cursor.close()
     conn.close()
@@ -89,3 +98,79 @@ def get_listing_by_id_db(listing_id: int) -> Optional[dict]:
     cursor.close()
     conn.close()
     return row
+
+
+def add_favorite(user_id: str, listing_id: int) -> Optional[dict]:
+    """즐겨찾기 추가. 이미 존재하면 None 반환"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "INSERT INTO favorites (user_id, listing_id) VALUES (%s, %s)",
+            (user_id, listing_id),
+        )
+        conn.commit()
+        return {"id": cursor.lastrowid, "user_id": user_id, "listing_id": listing_id}
+    except Exception:
+        return None
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def get_favorites_db(user_id: str) -> list:
+    """유저의 즐겨찾기 목록 조회 (listings JOIN)"""
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute(
+        """
+        SELECT f.id AS favorite_id, l.*
+        FROM favorites f
+        JOIN listings l ON f.listing_id = l.id
+        WHERE f.user_id = %s
+        ORDER BY f.created_at DESC
+        """,
+        (user_id,),
+    )
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return rows
+
+
+def delete_favorite(favorite_id: int, user_id: str) -> bool:
+    """즐겨찾기 삭제. 삭제된 행이 있으면 True"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "DELETE FROM favorites WHERE id = %s AND user_id = %s",
+        (favorite_id, user_id),
+    )
+    conn.commit()
+    affected = cursor.rowcount
+    cursor.close()
+    conn.close()
+    return affected > 0
+
+
+def get_market_trend_db(area: str, listing_type: Optional[str] = None) -> list:
+    """지역·타입별 날짜별 평균 가격 트렌드 조회"""
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    query = """
+        SELECT DATE(created_at) AS date,
+               ROUND(AVG(price), 0) AS avg_price,
+               COUNT(*) AS count
+        FROM listings
+        WHERE (city LIKE %s OR address LIKE %s)
+    """
+    params: list = [f"%{area}%", f"%{area}%"]
+    if listing_type:
+        query += " AND type = %s"
+        params.append(listing_type)
+    query += " GROUP BY DATE(created_at) ORDER BY date ASC"
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return rows

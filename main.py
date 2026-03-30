@@ -30,7 +30,7 @@ app.add_middleware(
 )
 
 # 라우터 등록
-app.include_router(housing_detail.router, prefix="/api", tags=["Housing Detail"])
+app.include_router(housing_detail.router, prefix="/api", tags=["주택 상세 정보"])
 
 if __name__ == "__main__":
     import uvicorn

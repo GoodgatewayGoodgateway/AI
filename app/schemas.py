@@ -115,3 +115,74 @@ class ComparisonResult(BaseModel):
 
 class SummaryResponse(BaseModel):
     summary: str = Field(..., description="AI가 생성한 요약 문장")
+
+
+# ──────────────────────────────────────────────
+# 시세 통계 스키마
+# ──────────────────────────────────────────────
+
+class MarketTypeStats(BaseModel):
+    count: int = Field(..., description="매물 수")
+    avg_price: int = Field(..., description="평균 환산가격 (만원)")
+    avg_area_m2: float = Field(..., description="평균 면적 (㎡)")
+
+
+class MarketStatsResponse(BaseModel):
+    area: str = Field(..., description="조회 지역명")
+    total_count: int = Field(..., description="전체 매물 수")
+    by_type: dict = Field(..., description="타입별 통계")
+    price_range: dict = Field(..., description="최저·최고 환산가격 (만원)")
+
+
+# ──────────────────────────────────────────────
+# 매물 점수 스키마
+# ──────────────────────────────────────────────
+
+class ScoreBreakdown(BaseModel):
+    price_score: int = Field(..., description="가격 점수 (0~100). 시세 대비 저렴할수록 높음")
+    facilities_score: int = Field(..., description="편의시설 점수 (0~100). 주변 시설 수 기반")
+    transit_score: int = Field(..., description="교통 점수 (0~100). 지하철역 수 기반")
+
+
+class ScoreResponse(BaseModel):
+    total_score: int = Field(..., description="종합 점수 (0~100)")
+    breakdown: ScoreBreakdown
+    grade: str = Field(..., description="등급 (S / A / B / C / D / F)")
+
+
+# ──────────────────────────────────────────────
+# 추천 매물 스키마
+# ──────────────────────────────────────────────
+
+class RecommendRequest(BaseModel):
+    query: str = Field(..., description="지역명 또는 주소. 예) 강남구, 홍대입구역", examples=["마포구"])
+    max_deposit: Optional[int] = Field(None, description="최대 보증금 (만원)", examples=[5000])
+    max_monthly: Optional[int] = Field(None, description="최대 월세 (만원)", examples=[60])
+    min_area_pyeong: Optional[float] = Field(None, description="최소 면적 (평)", examples=[5.0])
+    preferred_types: Optional[List[str]] = Field(None, description="선호 유형 목록. 예) ['원룸', '빌라']", examples=[["원룸"]])
+    top_n: int = Field(5, description="추천 매물 수 (기본 5, 최대 20)", ge=1, le=20)
+
+
+# ──────────────────────────────────────────────
+# 즐겨찾기 스키마
+# ──────────────────────────────────────────────
+
+class FavoriteRequest(BaseModel):
+    user_id: str = Field(..., description="사용자 식별자 (앱에서 관리)", examples=["user_abc123"])
+    listing_id: int = Field(..., description="즐겨찾기할 매물 ID", examples=[42])
+
+
+# ──────────────────────────────────────────────
+# 가격 트렌드 스키마
+# ──────────────────────────────────────────────
+
+class TrendPoint(BaseModel):
+    date: str = Field(..., description="날짜 (YYYY-MM-DD)")
+    avg_price: int = Field(..., description="평균 환산가격 (만원)")
+    count: int = Field(..., description="해당 날짜 매물 수")
+
+
+class TrendResponse(BaseModel):
+    area: str = Field(..., description="조회 지역명")
+    type: Optional[str] = Field(None, description="매물 유형 필터 (없으면 전체)")
+    trend: List[TrendPoint] = Field(..., description="날짜별 평균 가격 추이")
