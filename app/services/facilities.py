@@ -1,4 +1,5 @@
 import os
+import time
 import asyncio
 import httpx
 from dotenv import load_dotenv
@@ -20,6 +21,10 @@ CATEGORIES = {
     "banks": "BK9",                # 은행
     "parks": "PK6",                # 공원
 }
+
+# 편의시설 TTL 캐시: { "lat,lng" -> (result_dict, timestamp) }
+_FACILITIES_CACHE: dict[str, tuple[dict, float]] = {}
+_FACILITIES_TTL = 300  # 5분
 
 # 카테고리별 비동기 요청
 async def fetch_category(client: httpx.AsyncClient, lat: float, lng: float, category_code: str) -> list[FacilityItem]:
@@ -47,12 +52,21 @@ async def fetch_category(client: httpx.AsyncClient, lat: float, lng: float, cate
         print(f"[카테고리 요청 실패] {category_code}: {e}")
         return []
 
-# 비동기 편의시설 전체 수집 (최종 버전)
+# 비동기 편의시설 전체 수집 (TTL 캐시 적용)
 async def async_get_nearby_facilities(lat: float, lng: float) -> dict:
+    cache_key = f"{lat:.4f},{lng:.4f}"
+    cached = _FACILITIES_CACHE.get(cache_key)
+    if cached is not None:
+        result, ts = cached
+        if time.time() - ts < _FACILITIES_TTL:
+            return result
+
     async with httpx.AsyncClient() as client:
         tasks = {
             name: fetch_category(client, lat, lng, code)
             for name, code in CATEGORIES.items()
         }
         results = await asyncio.gather(*tasks.values(), return_exceptions=False)
-    return dict(zip(tasks.keys(), results))
+    result = dict(zip(tasks.keys(), results))
+    _FACILITIES_CACHE[cache_key] = (result, time.time())
+    return result

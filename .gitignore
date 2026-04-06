@@ -22,3 +22,5 @@ Thumbs.db
 
 .env
 DOCS.md
+optimization-results.md
+benchmark.py

@@ -70,7 +70,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── 헬스체크 (Railway 헬스체크 경로) ──────────────────────
+# ── 헬스체크 ──────────────────────────────────────────────
 @app.get("/health", tags=["헬스체크"])
 def health_check():
     return {"status": "ok"}

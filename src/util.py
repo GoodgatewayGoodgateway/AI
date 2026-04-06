@@ -374,65 +374,66 @@ async def get_article_listings(
     url = "https://m.land.naver.com/cluster/ajax/articleList"
     rlet_code = _resolve_rlet_codes(estate_types)
 
-    for page in range(1, pages + 1):
-        params = {
-            "rletTpCd": rlet_code,
-            "tradTpCd": "A1:B1:B2",
-            "z": 15,
-            "lat": loc.lat,
-            "lon": loc.lon,
-            "btm": loc.lat - 0.008,
-            "lft": loc.lon - 0.015,
-            "top": loc.lat + 0.008,
-            "rgt": loc.lon + 0.015,
-            "page": page,
-        }
+    async with httpx.AsyncClient(headers=_ARTICLE_HEADERS, timeout=10.0) as client:
+        for page in range(1, pages + 1):
+            params = {
+                "rletTpCd": rlet_code,
+                "tradTpCd": "A1:B1:B2",
+                "z": 15,
+                "lat": loc.lat,
+                "lon": loc.lon,
+                "btm": loc.lat - 0.008,
+                "lft": loc.lon - 0.015,
+                "top": loc.lat + 0.008,
+                "rgt": loc.lon + 0.015,
+                "page": page,
+            }
 
-        try:
-            res = requests.get(url, params=params, headers=_ARTICLE_HEADERS, timeout=10)
-            res.raise_for_status()
-            data = res.json()
+            try:
+                res = await client.get(url, params=params)
+                res.raise_for_status()
+                data = res.json()
 
-            articles = data.get("body") or []
-            if not articles:
+                articles = data.get("body") or []
+                if not articles:
+                    break
+
+                coords_list = [(float(a["lat"]), float(a["lng"])) for a in articles]
+                addresses = await asyncio.gather(*[
+                    coords_to_address(lat, lng) for lat, lng in coords_list
+                ])
+
+                for a, address_name in zip(articles, addresses):
+                    try:
+                        deposit = int(a.get("prc", 0))
+                        monthly = int(a.get("rentPrc", 0))
+                        area_m2 = float(a.get("spc2") or 0.0)
+                        lat_a = float(a["lat"])
+                        lng_a = float(a["lng"])
+
+                        listings.append({
+                            "name": a.get("atclNm", "매물"),
+                            "address": address_name,
+                            "area": round(area_m2, 1),
+                            "deposit": deposit,
+                            "monthly": monthly,
+                            "price": deposit + monthly * 10,
+                            "lat": lat_a,
+                            "lng": lng_a,
+                            "type": a.get("rletTpNm", "기타"),
+                            "trade_type": a.get("tradTpNm", ""),
+                            "distance_km": round(distance_between(loc, NLocation(lat_a, lng_a)) / 1000, 2),
+                            "source": "article",
+                        })
+                    except Exception as e:
+                        print(f"[article 파싱 실패] {e}")
+
+                if not data.get("more", False):
+                    break
+
+            except Exception as e:
+                print(f"[articleList 요청 실패] page={page}: {e}")
                 break
-
-            coords_list = [(float(a["lat"]), float(a["lng"])) for a in articles]
-            addresses = await asyncio.gather(*[
-                coords_to_address(lat, lng) for lat, lng in coords_list
-            ])
-
-            for a, address_name in zip(articles, addresses):
-                try:
-                    deposit = int(a.get("prc", 0))
-                    monthly = int(a.get("rentPrc", 0))
-                    area_m2 = float(a.get("spc2") or 0.0)
-                    lat_a = float(a["lat"])
-                    lng_a = float(a["lng"])
-
-                    listings.append({
-                        "name": a.get("atclNm", "매물"),
-                        "address": address_name,
-                        "area": round(area_m2, 1),
-                        "deposit": deposit,
-                        "monthly": monthly,
-                        "price": deposit + monthly * 10,
-                        "lat": lat_a,
-                        "lng": lng_a,
-                        "type": a.get("rletTpNm", "기타"),
-                        "trade_type": a.get("tradTpNm", ""),
-                        "distance_km": round(distance_between(loc, NLocation(lat_a, lng_a)) / 1000, 2),
-                        "source": "article",
-                    })
-                except Exception as e:
-                    print(f"[article 파싱 실패] {e}")
-
-            if not data.get("more", False):
-                break
-
-        except Exception as e:
-            print(f"[articleList 요청 실패] page={page}: {e}")
-            break
 
     return listings
 
@@ -489,7 +490,8 @@ async def get_complex_listings(
     }
 
     try:
-        res = requests.get(url, params=params, headers=_ARTICLE_HEADERS, timeout=10)
+        async with httpx.AsyncClient(headers=_ARTICLE_HEADERS, timeout=10.0) as client:
+            res = await client.get(url, params=params)
         res.raise_for_status()
         data = res.json()
 

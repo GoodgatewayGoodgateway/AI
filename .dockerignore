@@ -13,5 +13,4 @@ venv/
 .vscode/
 *.md
 Dockerfile
-railway.toml
 .dockerignore

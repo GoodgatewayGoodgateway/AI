@@ -94,7 +94,7 @@ async def get_ai_summary(data: HousingRequest = Body(...)):
 
         fac = FacilitySummary(**fac_dict)
         cmp = ComparisonResult(**cmp_result) if isinstance(cmp_result, dict) else cmp_result
-        summary = generate_summary(data, fac, cmp)
+        summary = await generate_summary(data, fac, cmp)
 
         logger.info(f"[요약 생성 완료] {time.perf_counter() - start:.2f}초 소요")
 

@@ -70,7 +70,7 @@ def get_best_available_model() -> str:
     best_models = [m for m in sorted_models if MODEL_FAILURE_COUNT[m] == best_count]
     return random.choice(best_models)
 
-def generate_summary(req: HousingRequest, fac: FacilitySummary, cmp: ComparisonResult) -> str:
+def _generate_summary_sync(req: HousingRequest, fac: FacilitySummary, cmp: ComparisonResult) -> str:
     try:
         # 입력값 캐싱 키 생성
         cache_key = (req.address, req.deposit, req.monthly, req.netLeasableArea)
@@ -134,3 +134,9 @@ def generate_summary(req: HousingRequest, fac: FacilitySummary, cmp: ComparisonR
     except Exception as e:
         logging.warning(f"[Gemini 요약 실패] {e}")
         return "요약을 생성할 수 없습니다. 나중에 다시 시도해주세요."
+
+
+async def generate_summary(req: HousingRequest, fac: FacilitySummary, cmp: ComparisonResult) -> str:
+    """비동기 래퍼: 동기 Gemini 호출을 스레드풀에서 실행해 이벤트 루프 블로킹 방지"""
+    import asyncio
+    return await asyncio.to_thread(_generate_summary_sync, req, fac, cmp)
